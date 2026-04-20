@@ -118,7 +118,9 @@ export default function App() {
         order.customerName.toLowerCase().includes(searchTerm.toLowerCase()) ||
         order.id.toLowerCase().includes(searchTerm.toLowerCase()) ||
         order.tmsStatus.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        order.items.toLowerCase().includes(searchTerm.toLowerCase());
+        order.recipient.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        order.location.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        order.shift.toLowerCase().includes(searchTerm.toLowerCase());
 
       if (!matchesSearch) return false;
 
@@ -242,11 +244,23 @@ export default function App() {
               </Button>
             }
           />
-          <DialogContent className="bg-[#161b22] border-[#30363d] text-[#e6edf3]">
+          <DialogContent className="bg-[#161b22] border-[#30363d] text-[#e6edf3] max-w-lg">
             <DialogHeader>
               <DialogTitle>Importar Datos de Pedidos</DialogTitle>
               <DialogDescription className="text-[#8b949e]">
-                Suba un archivo Excel (.xlsx o .xls) con las columnas correspondientes.
+                El archivo Excel debe tener las siguientes columnas:
+                <div className="grid grid-cols-2 gap-x-4 mt-2 text-[11px] font-mono bg-[#0b0e14] p-3 rounded-lg border border-[#30363d]">
+                  <span>A: Estado TMS</span>
+                  <span>B: Fecha Creación</span>
+                  <span>C: Cliente</span>
+                  <span>D: ID Pedido</span>
+                  <span>E: Destinatario</span>
+                  <span>F: Localidad</span>
+                  <span>G: Bultos</span>
+                  <span>H: Kilos</span>
+                  <span>I: Fecha Vencimiento</span>
+                  <span>J: Turno</span>
+                </div>
               </DialogDescription>
             </DialogHeader>
             <div className="flex flex-col items-center justify-center p-8 border-2 border-dashed border-[#30363d] rounded-xl bg-[#0b0e14]/50 hover:border-[#8b949e] transition-colors cursor-pointer group relative">
@@ -325,13 +339,16 @@ export default function App() {
               <Table className="border-collapse">
                 <TableHeader>
                   <TableRow className="border-[#30363d] hover:bg-transparent">
-                    <TableHead className="text-[#8b949e] uppercase text-[12px] h-12 px-6">ID Pedido</TableHead>
-                    <TableHead className="text-[#8b949e] uppercase text-[12px] h-12 px-6">Cliente / Destino</TableHead>
-                    <TableHead className="text-[#8b949e] uppercase text-[12px] h-12 px-6">Estado en TMS</TableHead>
-                    <TableHead className="text-[#8b949e] uppercase text-[12px] h-12 px-6">Fecha Vencimiento</TableHead>
-                    <TableHead className="text-[#8b949e] uppercase text-[12px] h-12 px-6">Tiempo Restante</TableHead>
-                    <TableHead className="text-[#8b949e] uppercase text-[12px] h-12 px-6">Prioridad</TableHead>
-                    <TableHead className="text-[#8b949e] uppercase text-[12px] h-12 px-6">Estado</TableHead>
+                    <TableHead className="text-[#8b949e] uppercase text-[12px] h-12 px-4">ID Pedido</TableHead>
+                    <TableHead className="text-[#8b949e] uppercase text-[12px] h-12 px-4">Estado TMS</TableHead>
+                    <TableHead className="text-[#8b949e] uppercase text-[12px] h-12 px-4">Cliente</TableHead>
+                    <TableHead className="text-[#8b949e] uppercase text-[12px] h-12 px-4">Destinatario</TableHead>
+                    <TableHead className="text-[#8b949e] uppercase text-[12px] h-12 px-4">Localidad</TableHead>
+                    <TableHead className="text-[#8b949e] uppercase text-[12px] h-12 px-4">Creación</TableHead>
+                    <TableHead className="text-[#8b949e] uppercase text-[12px] h-12 px-4">Vencimiento</TableHead>
+                    <TableHead className="text-[#8b949e] uppercase text-[12px] h-12 px-4">Turno</TableHead>
+                    <TableHead className="text-[#8b949e] uppercase text-[12px] h-12 px-4">Bultos/Kg</TableHead>
+                    <TableHead className="text-[#8b949e] uppercase text-[12px] h-12 px-4">Estado</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -342,28 +359,35 @@ export default function App() {
                         initial={{ opacity: 0 }}
                         animate={{ opacity: 1 }}
                         exit={{ opacity: 0 }}
-                        key={order.id}
+                        key={order.uniqueId}
                         className="border-[#21262d] hover:bg-[#1c2128] transition-colors"
                       >
-                        <TableCell className="px-6 py-4 font-mono text-[#8b949e] text-sm">#{order.id}</TableCell>
-                        <TableCell className="px-6 py-4 font-medium text-[#e6edf3]">{order.customerName}</TableCell>
-                        <TableCell className="px-6 py-4">
-                          <Badge variant="outline" className="bg-[#161b22] border-[#30363d] text-[#8b949e]">
+                        <TableCell className="px-4 py-3 font-mono text-[#58a6ff] text-sm">#{order.id}</TableCell>
+                        <TableCell className="px-4 py-3">
+                          <Badge variant="outline" className="bg-[#161b22] border-[#30363d] text-[#8b949e] text-[10px] whitespace-nowrap">
                             {order.tmsStatus}
                           </Badge>
                         </TableCell>
-                        <TableCell className="px-6 py-4 text-[#e6edf3]">
-                          {format(order.deliveryDeadline, 'dd MMM yyyy', { locale: es })}
+                        <TableCell className="px-4 py-3 font-medium text-[#e6edf3] text-sm truncate max-w-[120px]">{order.customerName}</TableCell>
+                        <TableCell className="px-4 py-3 text-[#e6edf3] text-sm truncate max-w-[120px]">{order.recipient}</TableCell>
+                        <TableCell className="px-4 py-3 text-[#8b949e] text-sm">{order.location}</TableCell>
+                        <TableCell className="px-4 py-3 text-[#8b949e] text-sm">
+                          {format(order.createdAt, 'dd/MM/yy', { locale: es })}
                         </TableCell>
-                        <TableCell className="px-6 py-4">
-                          <span className="font-mono text-[#8b949e] text-sm">
-                            {getTimeLeft(order.deliveryDeadline)}
-                          </span>
+                        <TableCell className="px-4 py-3">
+                          <div className="flex flex-col">
+                            <span className="text-[#e6edf3] text-sm">{format(order.deliveryDeadline, 'dd/MM/yy', { locale: es })}</span>
+                            <span className="text-[10px] text-[#8b949e] font-mono">{getTimeLeft(order.deliveryDeadline)}</span>
+                          </div>
                         </TableCell>
-                        <TableCell className="px-6 py-4">
-                          {getPriorityVisual(order.priority)}
+                        <TableCell className="px-4 py-3 text-sm">{order.shift}</TableCell>
+                        <TableCell className="px-4 py-3">
+                          <div className="flex flex-col text-[11px] text-[#8b949e]">
+                            <span>{order.packages} bultos</span>
+                            <span>{order.weight} kg</span>
+                          </div>
                         </TableCell>
-                        <TableCell className="px-6 py-4">
+                        <TableCell className="px-4 py-3">
                           {getStatusTag(order)}
                         </TableCell>
                       </motion.tr>

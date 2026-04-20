@@ -2,14 +2,20 @@ export type OrderStatus = 'pending' | 'delivered';
 
 export interface Order {
   id: string;
+  uniqueId: string;
   customerName: string;
-  orderDate: Date;
+  createdAt: Date;
   deliveryDeadline: Date;
   actualDeliveryDate?: Date;
   status: OrderStatus;
   items: string;
   priority: 'low' | 'medium' | 'high';
   tmsStatus: string;
+  recipient: string;
+  location: string;
+  packages: number;
+  weight: number;
+  shift: string;
 }
 
 export interface KPIStats {

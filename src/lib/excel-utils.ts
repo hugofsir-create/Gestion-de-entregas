@@ -17,9 +17,16 @@ export const parseExcelFile = (file: File): Promise<Order[]> => {
         const dataRows = jsonData.length > 0 ? jsonData.slice(1) : [];
 
         const orders: Order[] = dataRows.map((row: any, index) => {
-          const id = row['G'] || `ORD-${index + 1000}`;
-          const customerName = row['F'] || 'N/A';
           const tmsStatus = row['A'] || 'N/A';
+          const createdAtRaw = row['B'];
+          const customerName = row['C'] || 'N/A';
+          const id = row['D'] || `ORD-${index + 1000}`;
+          const recipient = row['E'] || 'N/A';
+          const location = row['F'] || 'N/A';
+          const packages = Number(row['G']) || 0;
+          const weight = Number(row['H']) || 0;
+          const deadlineRaw = row['I'];
+          const shift = row['J'] || 'N/A';
           
           const parseDate = (val: any) => {
             if (!val) return new Date();
@@ -27,7 +34,7 @@ export const parseExcelFile = (file: File): Promise<Order[]> => {
             if (typeof val === 'number') {
               return new Date((val - 25569) * 86400 * 1000);
             }
-            const formats = ['yyyy-MM-dd', 'dd/MM/yyyy', 'MM/dd/yyyy'];
+            const formats = ['yyyy-MM-dd', 'dd/MM/yyyy', 'MM/dd/yyyy', 'dd-MM-yyyy', 'HH:mm:ss'];
             for (const f of formats) {
               const d = parse(String(val), f, new Date());
               if (isValid(d)) return d;
@@ -35,25 +42,30 @@ export const parseExcelFile = (file: File): Promise<Order[]> => {
             return new Date(val);
           };
 
-          const deliveryDeadline = parseDate(row['Y']);
-          // For orderDate, let's keep it as current if not provided or use another col if common
-          const orderDate = new Date(); 
+          const createdAt = parseDate(createdAtRaw);
+          const deliveryDeadline = parseDate(deadlineRaw);
           
           // Heuristic for status based on tms data or generic
           let status: OrderStatus = 'pending';
-          const statusRaw = String(row['A'] || '').toLowerCase();
+          const statusRaw = String(tmsStatus).toLowerCase();
           if (statusRaw.includes('entregado') || statusRaw.includes('finalizado') || statusRaw.includes('delivered')) {
             status = 'delivered';
           }
 
           return {
             id: String(id),
+            uniqueId: `${id}-${index}-${Date.now()}`,
             customerName: String(customerName),
-            orderDate,
+            createdAt,
             deliveryDeadline,
             status,
             tmsStatus: String(tmsStatus),
-            items: '', // Default as it's not requested specifically now
+            recipient: String(recipient),
+            location: String(location),
+            packages,
+            weight,
+            shift: String(shift),
+            items: '', 
             priority: 'medium',
           };
         });
