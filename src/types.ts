@@ -23,4 +23,5 @@ export interface KPIStats {
   onTime: number;
   late: number;
   pending: number;
+  expiringSoon: number;
 }

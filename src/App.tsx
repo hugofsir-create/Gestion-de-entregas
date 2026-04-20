@@ -50,7 +50,7 @@ import {
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 
-type FilterType = 'all' | 'onTime' | 'late' | 'pending';
+type FilterType = 'all' | 'onTime' | 'late' | 'pending' | 'expiringSoon';
 
 export default function App() {
   const [orders, setOrders] = useState<Order[]>(mockOrders);
@@ -70,6 +70,7 @@ export default function App() {
       onTime: 0,
       late: 0,
       pending: 0,
+      expiringSoon: 0,
     };
 
     orders.forEach(order => {
@@ -81,9 +82,9 @@ export default function App() {
         }
       } else {
         stats.pending++;
-        if (isPast(order.deliveryDeadline)) {
-           // If it's pending and past deadline, it's technically "late" but let's count in both if desired
-           // But here we separate delivered vs pending
+        const daysLeft = differenceInDays(order.deliveryDeadline, now);
+        if (daysLeft >= 0 && daysLeft <= 5 && !isPast(order.deliveryDeadline)) {
+          stats.expiringSoon++;
         }
       }
     });
@@ -120,6 +121,10 @@ export default function App() {
       }
       if (activeFilter === 'pending') {
         return order.status === 'pending';
+      }
+      if (activeFilter === 'expiringSoon') {
+        const daysLeft = differenceInDays(order.deliveryDeadline, now);
+        return order.status === 'pending' && daysLeft >= 0 && daysLeft <= 5 && !isPast(order.deliveryDeadline);
       }
       return true;
     });
@@ -258,7 +263,7 @@ export default function App() {
 
       <main className="max-w-7xl mx-auto space-y-6">
         {/* Metrics Grid */}
-        <section className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           <KPICard 
             title="Total Pedidos" 
             value={kpis.total} 
@@ -280,6 +285,13 @@ export default function App() {
             onClick={() => setActiveFilter('late')}
             color="red"
           />
+          <KPICard 
+            title="Vencimiento < 5 Días" 
+            value={kpis.expiringSoon} 
+            isActive={activeFilter === 'expiringSoon'}
+            onClick={() => setActiveFilter('expiringSoon')}
+            color="orange"
+          />
         </section>
 
         {/* Filters and Table */}
@@ -300,19 +312,19 @@ export default function App() {
               <div className="text-[#8b949e] text-[12px]">Última importación: Hoy, {format(new Date(), 'hh:mm a')}</div>
             </div>
             <div className="overflow-x-auto w-fit max-w-full border-[#30363d] border rounded-lg">
-              <Table className="border-collapse table-fixed w-[1200px]">
+              <Table className="border-collapse table-fixed w-[1150px]">
                 <TableHeader>
                   <TableRow className="border-[#30363d] hover:bg-transparent">
-                    <TableHead className="text-[#8b949e] uppercase text-[11px] h-10 px-2 whitespace-nowrap w-[90px]">ID Pedido</TableHead>
-                    <TableHead className="text-[#8b949e] uppercase text-[11px] h-10 px-2 whitespace-nowrap w-[110px]">Estado TMS</TableHead>
-                    <TableHead className="text-[#8b949e] uppercase text-[11px] h-10 px-2 whitespace-nowrap w-[200px]">Cliente</TableHead>
-                    <TableHead className="text-[#8b949e] uppercase text-[11px] h-10 px-2 whitespace-nowrap w-[180px]">Destinatario</TableHead>
-                    <TableHead className="text-[#8b949e] uppercase text-[11px] h-10 px-2 whitespace-nowrap w-[140px]">Localidad</TableHead>
-                    <TableHead className="text-[#8b949e] uppercase text-[11px] h-10 px-2 whitespace-nowrap w-[90px]">Creación</TableHead>
-                    <TableHead className="text-[#8b949e] uppercase text-[11px] h-10 px-2 whitespace-nowrap w-[90px]">Vencimiento</TableHead>
-                    <TableHead className="text-[#8b949e] uppercase text-[11px] h-10 px-2 whitespace-nowrap w-[80px]">Turno</TableHead>
-                    <TableHead className="text-[#8b949e] uppercase text-[11px] h-10 px-2 whitespace-nowrap w-[90px] text-right">Bultos/Kg</TableHead>
-                    <TableHead className="text-[#8b949e] uppercase text-[11px] h-10 px-2 text-center whitespace-nowrap w-[130px]">Estado</TableHead>
+                    <TableHead className="text-[#8b949e] uppercase text-[10px] h-10 px-2 whitespace-nowrap w-[110px]">ID Pedido</TableHead>
+                    <TableHead className="text-[#8b949e] uppercase text-[10px] h-10 px-2 whitespace-nowrap w-[110px]">Estado TMS</TableHead>
+                    <TableHead className="text-[#8b949e] uppercase text-[10px] h-10 px-2 whitespace-nowrap w-[180px]">Cliente</TableHead>
+                    <TableHead className="text-[#8b949e] uppercase text-[10px] h-10 px-2 whitespace-nowrap w-[160px]">Destinatario</TableHead>
+                    <TableHead className="text-[#8b949e] uppercase text-[10px] h-10 px-2 whitespace-nowrap w-[140px]">Localidad</TableHead>
+                    <TableHead className="text-[#8b949e] uppercase text-[10px] h-10 px-2 whitespace-nowrap w-[80px]">Creación</TableHead>
+                    <TableHead className="text-[#8b949e] uppercase text-[10px] h-10 px-2 whitespace-nowrap w-[100px]">Vencimiento</TableHead>
+                    <TableHead className="text-[#8b949e] uppercase text-[10px] h-10 px-2 whitespace-nowrap w-[70px]">Turno</TableHead>
+                    <TableHead className="text-[#8b949e] uppercase text-[10px] h-10 px-2 whitespace-nowrap w-[80px] text-right">Bultos/Kg</TableHead>
+                    <TableHead className="text-[#8b949e] uppercase text-[10px] h-10 px-2 text-center whitespace-nowrap w-[120px]">Estado</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -321,28 +333,31 @@ export default function App() {
                       key={order.uniqueId}
                       className="border-[#21262d] hover:bg-[#1c2128] transition-colors"
                     >
-                      <TableCell className="px-2 py-2 font-mono text-[#58a6ff] text-[13px] whitespace-nowrap overflow-hidden text-ellipsis">#{order.id}</TableCell>
-                      <TableCell className="px-2 py-2 whitespace-nowrap overflow-hidden">
-                        <Badge variant="outline" className="bg-[#161b22] border-[#30363d] text-[#8b949e] text-[10px] whitespace-nowrap truncate max-w-full">
+                      <TableCell className="px-2 py-2 font-mono text-[#58a6ff] text-[12px] whitespace-nowrap">#{order.id}</TableCell>
+                      <TableCell className="px-2 py-2 whitespace-nowrap">
+                        <Badge variant="outline" className="bg-[#161b22] border-[#30363d] text-[#8b949e] text-[9px] whitespace-nowrap">
                           {order.tmsStatus}
                         </Badge>
                       </TableCell>
-                      <TableCell className="px-2 py-2 font-medium text-[#e6edf3] text-[13px] whitespace-nowrap truncate" title={order.customerName}>
+                      <TableCell className="px-2 py-2 font-medium text-[#e6edf3] text-[12px] whitespace-nowrap truncate" title={order.customerName}>
                         {order.customerName}
                       </TableCell>
-                      <TableCell className="px-2 py-2 text-[#e6edf3] text-[13px] whitespace-nowrap truncate" title={order.recipient}>
+                      <TableCell className="px-2 py-2 text-[#e6edf3] text-[12px] whitespace-nowrap truncate" title={order.recipient}>
                         {order.recipient}
                       </TableCell>
-                      <TableCell className="px-2 py-2 text-[#8b949e] text-[13px] whitespace-nowrap truncate" title={order.location}>
+                      <TableCell className="px-2 py-2 text-[#8b949e] text-[12px] whitespace-nowrap truncate" title={order.location}>
                         {order.location}
                       </TableCell>
-                      <TableCell className="px-2 py-2 text-[#8b949e] text-[13px] whitespace-nowrap">
+                      <TableCell className="px-2 py-2 text-[#8b949e] text-[12px] whitespace-nowrap">
                         {format(order.createdAt, 'dd/MM/yy', { locale: es })}
                       </TableCell>
                       <TableCell className="px-2 py-2 whitespace-nowrap">
-                        <span className="text-[#e6edf3] text-[13px]">{format(order.deliveryDeadline, 'dd/MM/yy', { locale: es })}</span>
+                        <div className="flex flex-col whitespace-nowrap leading-tight">
+                          <span className="text-[#e6edf3] text-[12px]">{format(order.deliveryDeadline, 'dd/MM/yy', { locale: es })}</span>
+                          <span className="text-[10px] text-[#8b949e] font-mono">{getTimeLeft(order.deliveryDeadline)}</span>
+                        </div>
                       </TableCell>
-                      <TableCell className="px-2 py-2 text-[13px] whitespace-nowrap">{order.shift}</TableCell>
+                      <TableCell className="px-2 py-2 text-[12px] whitespace-nowrap">{order.shift}</TableCell>
                       <TableCell className="px-2 py-2 whitespace-nowrap text-right">
                         <div className="flex flex-col text-[11px] text-[#8b949e] whitespace-nowrap leading-tight">
                           <span>{order.packages} bultos</span>
@@ -389,18 +404,18 @@ function getStatusTag(order: Order) {
   if (order.status === 'delivered') {
     const onTime = order.actualDeliveryDate && order.actualDeliveryDate <= order.deliveryDeadline;
     return onTime 
-      ? <span className="px-2 py-1 rounded bg-[#3fb95015] text-[#3fb950] text-[11px] font-bold uppercase">A Tiempo</span>
-      : <span className="px-2 py-1 rounded bg-[#f8514915] text-[#f85149] text-[11px] font-bold uppercase">Fuera de Tiempo</span>;
+      ? <span className="px-2 py-1 rounded bg-[#3fb95015] text-[#3fb950] text-[10px] font-bold uppercase">A Tiempo</span>
+      : <span className="px-2 py-1 rounded bg-[#f8514915] text-[#f85149] text-[10px] font-bold uppercase">Fuera de Tiempo</span>;
   }
 
   const daysLeft = differenceInDays(order.deliveryDeadline, new Date());
   if (isPast(order.deliveryDeadline)) {
-    return <span className="px-2 py-1 rounded bg-[#f8514915] text-[#f85149] text-[11px] font-bold uppercase">Atrasado</span>;
+    return <span className="px-2 py-1 rounded bg-[#f8514915] text-[#f85149] text-[10px] font-bold uppercase">Atrasado</span>;
   }
   if (daysLeft >= 0 && daysLeft <= 5) {
-    return <span className="px-2 py-1 rounded bg-[#d2992215] text-[#d29922] text-[11px] font-bold uppercase whitespace-nowrap">Próximo a Vencer</span>;
+    return <span className="px-2 py-1 rounded bg-[#d2992215] text-[#d29922] text-[10px] font-bold uppercase whitespace-nowrap">Próximo a Vencer</span>;
   }
-  return <span className="px-2 py-1 rounded bg-[#3fb95015] text-[#3fb950] text-[11px] font-bold uppercase">En Tiempo</span>;
+  return <span className="px-2 py-1 rounded bg-[#3fb95015] text-[#3fb950] text-[10px] font-bold uppercase">En Tiempo</span>;
 }
 
 interface KPICardProps {
