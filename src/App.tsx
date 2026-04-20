@@ -50,7 +50,7 @@ import {
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 
-type FilterType = 'all' | 'onTime' | 'late' | 'pending' | 'expiringSoon';
+type FilterType = 'all' | 'onTime' | 'late' | 'pending';
 
 export default function App() {
   const [orders, setOrders] = useState<Order[]>(mockOrders);
@@ -63,22 +63,6 @@ export default function App() {
     document.documentElement.classList.add('dark');
   }, []);
 
-  // Notifications for approaching deadlines
-  useEffect(() => {
-    const expiringSoon = orders.filter(order => {
-      if (order.status === 'delivered') return false;
-      const daysLeft = differenceInDays(order.deliveryDeadline, new Date());
-      return daysLeft >= 0 && daysLeft <= 5;
-    });
-
-    if (expiringSoon.length > 0) {
-      toast.warning(`${expiringSoon.length} pedidos están próximos a vencer`, {
-        description: 'Vencen en menos de 5 días.',
-        duration: 5000,
-      });
-    }
-  }, [orders]);
-
   const kpis = useMemo((): KPIStats => {
     const now = new Date();
     const stats = {
@@ -86,7 +70,6 @@ export default function App() {
       onTime: 0,
       late: 0,
       pending: 0,
-      expiringSoon: 0,
     };
 
     orders.forEach(order => {
@@ -98,10 +81,6 @@ export default function App() {
         }
       } else {
         stats.pending++;
-        const daysLeft = differenceInDays(order.deliveryDeadline, now);
-        if (daysLeft >= 0 && daysLeft <= 5) {
-          stats.expiringSoon++;
-        }
         if (isPast(order.deliveryDeadline)) {
            // If it's pending and past deadline, it's technically "late" but let's count in both if desired
            // But here we separate delivered vs pending
@@ -141,10 +120,6 @@ export default function App() {
       }
       if (activeFilter === 'pending') {
         return order.status === 'pending';
-      }
-      if (activeFilter === 'expiringSoon') {
-        const daysLeft = differenceInDays(order.deliveryDeadline, now);
-        return order.status === 'pending' && daysLeft >= 0 && daysLeft <= 5;
       }
       return true;
     });
@@ -209,10 +184,6 @@ export default function App() {
           <span className="text-[10px] px-2 py-0.5 rounded-full w-fit border border-rose-500/30 bg-rose-500/10 text-rose-500 font-medium uppercase tracking-wider">
             Vencido
           </span>
-        ) : isExpiring ? (
-          <span className="text-[10px] px-2 py-0.5 rounded-full w-fit border border-amber-500/30 bg-amber-500/10 text-amber-500 font-medium uppercase tracking-wider">
-            Vence Pronto
-          </span>
         ) : null}
       </div>
     );
@@ -249,19 +220,19 @@ export default function App() {
               <DialogTitle>Importar Datos de Pedidos</DialogTitle>
               <DialogDescription className="text-[#8b949e]">
                 El archivo Excel debe tener las siguientes columnas:
-                <div className="grid grid-cols-2 gap-x-4 mt-2 text-[11px] font-mono bg-[#0b0e14] p-3 rounded-lg border border-[#30363d]">
-                  <span>A: Estado TMS</span>
-                  <span>B: Fecha Creación</span>
-                  <span>C: Cliente</span>
-                  <span>D: ID Pedido</span>
-                  <span>E: Destinatario</span>
-                  <span>F: Localidad</span>
-                  <span>G: Bultos</span>
-                  <span>H: Kilos</span>
-                  <span>I: Fecha Vencimiento</span>
-                  <span>J: Turno</span>
-                </div>
               </DialogDescription>
+              <div className="grid grid-cols-2 gap-x-4 mt-2 text-[11px] font-mono bg-[#0b0e14] p-3 rounded-lg border border-[#30363d]">
+                <span>A: Estado TMS</span>
+                <span>B: Fecha Creación</span>
+                <span>C: Cliente</span>
+                <span>D: ID Pedido</span>
+                <span>E: Destinatario</span>
+                <span>F: Localidad</span>
+                <span>G: Bultos</span>
+                <span>H: Kilos</span>
+                <span>I: Fecha Vencimiento</span>
+                <span>J: Turno</span>
+              </div>
             </DialogHeader>
             <div className="flex flex-col items-center justify-center p-8 border-2 border-dashed border-[#30363d] rounded-xl bg-[#0b0e14]/50 hover:border-[#8b949e] transition-colors cursor-pointer group relative">
               <FileUp className="w-12 h-12 text-[#30363d] mb-4 group-hover:text-[#8b949e] transition-colors" />
@@ -287,7 +258,7 @@ export default function App() {
 
       <main className="max-w-7xl mx-auto space-y-6">
         {/* Metrics Grid */}
-        <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <section className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <KPICard 
             title="Total Pedidos" 
             value={kpis.total} 
@@ -309,13 +280,6 @@ export default function App() {
             onClick={() => setActiveFilter('late')}
             color="red"
           />
-          <KPICard 
-            title="Vencimiento < 5 Días" 
-            value={kpis.expiringSoon} 
-            isActive={activeFilter === 'expiringSoon'}
-            onClick={() => setActiveFilter('expiringSoon')}
-            color="orange"
-          />
         </section>
 
         {/* Filters and Table */}
@@ -335,64 +299,61 @@ export default function App() {
               <h2 className="text-base font-medium text-[#e6edf3]">Gestión de Entregas Pendientes</h2>
               <div className="text-[#8b949e] text-[12px]">Última importación: Hoy, {format(new Date(), 'hh:mm a')}</div>
             </div>
-            <div className="overflow-x-auto">
-              <Table className="border-collapse">
+            <div className="overflow-x-auto w-fit max-w-full border-[#30363d] border rounded-lg">
+              <Table className="border-collapse table-fixed w-[1200px]">
                 <TableHeader>
                   <TableRow className="border-[#30363d] hover:bg-transparent">
-                    <TableHead className="text-[#8b949e] uppercase text-[12px] h-12 px-4">ID Pedido</TableHead>
-                    <TableHead className="text-[#8b949e] uppercase text-[12px] h-12 px-4">Estado TMS</TableHead>
-                    <TableHead className="text-[#8b949e] uppercase text-[12px] h-12 px-4">Cliente</TableHead>
-                    <TableHead className="text-[#8b949e] uppercase text-[12px] h-12 px-4">Destinatario</TableHead>
-                    <TableHead className="text-[#8b949e] uppercase text-[12px] h-12 px-4">Localidad</TableHead>
-                    <TableHead className="text-[#8b949e] uppercase text-[12px] h-12 px-4">Creación</TableHead>
-                    <TableHead className="text-[#8b949e] uppercase text-[12px] h-12 px-4">Vencimiento</TableHead>
-                    <TableHead className="text-[#8b949e] uppercase text-[12px] h-12 px-4">Turno</TableHead>
-                    <TableHead className="text-[#8b949e] uppercase text-[12px] h-12 px-4">Bultos/Kg</TableHead>
-                    <TableHead className="text-[#8b949e] uppercase text-[12px] h-12 px-4">Estado</TableHead>
+                    <TableHead className="text-[#8b949e] uppercase text-[11px] h-10 px-2 whitespace-nowrap w-[90px]">ID Pedido</TableHead>
+                    <TableHead className="text-[#8b949e] uppercase text-[11px] h-10 px-2 whitespace-nowrap w-[110px]">Estado TMS</TableHead>
+                    <TableHead className="text-[#8b949e] uppercase text-[11px] h-10 px-2 whitespace-nowrap w-[200px]">Cliente</TableHead>
+                    <TableHead className="text-[#8b949e] uppercase text-[11px] h-10 px-2 whitespace-nowrap w-[180px]">Destinatario</TableHead>
+                    <TableHead className="text-[#8b949e] uppercase text-[11px] h-10 px-2 whitespace-nowrap w-[140px]">Localidad</TableHead>
+                    <TableHead className="text-[#8b949e] uppercase text-[11px] h-10 px-2 whitespace-nowrap w-[90px]">Creación</TableHead>
+                    <TableHead className="text-[#8b949e] uppercase text-[11px] h-10 px-2 whitespace-nowrap w-[90px]">Vencimiento</TableHead>
+                    <TableHead className="text-[#8b949e] uppercase text-[11px] h-10 px-2 whitespace-nowrap w-[80px]">Turno</TableHead>
+                    <TableHead className="text-[#8b949e] uppercase text-[11px] h-10 px-2 whitespace-nowrap w-[90px] text-right">Bultos/Kg</TableHead>
+                    <TableHead className="text-[#8b949e] uppercase text-[11px] h-10 px-2 text-center whitespace-nowrap w-[130px]">Estado</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  <AnimatePresence mode="popLayout">
-                    {filteredOrders.map((order) => (
-                      <motion.tr 
-                        layout
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: 1 }}
-                        exit={{ opacity: 0 }}
-                        key={order.uniqueId}
-                        className="border-[#21262d] hover:bg-[#1c2128] transition-colors"
-                      >
-                        <TableCell className="px-4 py-3 font-mono text-[#58a6ff] text-sm">#{order.id}</TableCell>
-                        <TableCell className="px-4 py-3">
-                          <Badge variant="outline" className="bg-[#161b22] border-[#30363d] text-[#8b949e] text-[10px] whitespace-nowrap">
-                            {order.tmsStatus}
-                          </Badge>
-                        </TableCell>
-                        <TableCell className="px-4 py-3 font-medium text-[#e6edf3] text-sm truncate max-w-[120px]">{order.customerName}</TableCell>
-                        <TableCell className="px-4 py-3 text-[#e6edf3] text-sm truncate max-w-[120px]">{order.recipient}</TableCell>
-                        <TableCell className="px-4 py-3 text-[#8b949e] text-sm">{order.location}</TableCell>
-                        <TableCell className="px-4 py-3 text-[#8b949e] text-sm">
-                          {format(order.createdAt, 'dd/MM/yy', { locale: es })}
-                        </TableCell>
-                        <TableCell className="px-4 py-3">
-                          <div className="flex flex-col">
-                            <span className="text-[#e6edf3] text-sm">{format(order.deliveryDeadline, 'dd/MM/yy', { locale: es })}</span>
-                            <span className="text-[10px] text-[#8b949e] font-mono">{getTimeLeft(order.deliveryDeadline)}</span>
-                          </div>
-                        </TableCell>
-                        <TableCell className="px-4 py-3 text-sm">{order.shift}</TableCell>
-                        <TableCell className="px-4 py-3">
-                          <div className="flex flex-col text-[11px] text-[#8b949e]">
-                            <span>{order.packages} bultos</span>
-                            <span>{order.weight} kg</span>
-                          </div>
-                        </TableCell>
-                        <TableCell className="px-4 py-3">
-                          {getStatusTag(order)}
-                        </TableCell>
-                      </motion.tr>
-                    ))}
-                  </AnimatePresence>
+                  {filteredOrders.map((order) => (
+                    <TableRow 
+                      key={order.uniqueId}
+                      className="border-[#21262d] hover:bg-[#1c2128] transition-colors"
+                    >
+                      <TableCell className="px-2 py-2 font-mono text-[#58a6ff] text-[13px] whitespace-nowrap overflow-hidden text-ellipsis">#{order.id}</TableCell>
+                      <TableCell className="px-2 py-2 whitespace-nowrap overflow-hidden">
+                        <Badge variant="outline" className="bg-[#161b22] border-[#30363d] text-[#8b949e] text-[10px] whitespace-nowrap truncate max-w-full">
+                          {order.tmsStatus}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="px-2 py-2 font-medium text-[#e6edf3] text-[13px] whitespace-nowrap truncate" title={order.customerName}>
+                        {order.customerName}
+                      </TableCell>
+                      <TableCell className="px-2 py-2 text-[#e6edf3] text-[13px] whitespace-nowrap truncate" title={order.recipient}>
+                        {order.recipient}
+                      </TableCell>
+                      <TableCell className="px-2 py-2 text-[#8b949e] text-[13px] whitespace-nowrap truncate" title={order.location}>
+                        {order.location}
+                      </TableCell>
+                      <TableCell className="px-2 py-2 text-[#8b949e] text-[13px] whitespace-nowrap">
+                        {format(order.createdAt, 'dd/MM/yy', { locale: es })}
+                      </TableCell>
+                      <TableCell className="px-2 py-2 whitespace-nowrap">
+                        <span className="text-[#e6edf3] text-[13px]">{format(order.deliveryDeadline, 'dd/MM/yy', { locale: es })}</span>
+                      </TableCell>
+                      <TableCell className="px-2 py-2 text-[13px] whitespace-nowrap">{order.shift}</TableCell>
+                      <TableCell className="px-2 py-2 whitespace-nowrap text-right">
+                        <div className="flex flex-col text-[11px] text-[#8b949e] whitespace-nowrap leading-tight">
+                          <span>{order.packages} bultos</span>
+                          <span>{order.weight} kg</span>
+                        </div>
+                      </TableCell>
+                      <TableCell className="px-2 py-2 text-center whitespace-nowrap">
+                        {getStatusTag(order)}
+                      </TableCell>
+                    </TableRow>
+                  ))}
                 </TableBody>
               </Table>
             </div>
@@ -436,8 +397,8 @@ function getStatusTag(order: Order) {
   if (isPast(order.deliveryDeadline)) {
     return <span className="px-2 py-1 rounded bg-[#f8514915] text-[#f85149] text-[11px] font-bold uppercase">Atrasado</span>;
   }
-  if (daysLeft <= 5) {
-    return <span className="px-2 py-1 rounded bg-[#d2992215] text-[#d29922] text-[11px] font-bold uppercase">Próximo a Vencer</span>;
+  if (daysLeft >= 0 && daysLeft <= 5) {
+    return <span className="px-2 py-1 rounded bg-[#d2992215] text-[#d29922] text-[11px] font-bold uppercase whitespace-nowrap">Próximo a Vencer</span>;
   }
   return <span className="px-2 py-1 rounded bg-[#3fb95015] text-[#3fb950] text-[11px] font-bold uppercase">En Tiempo</span>;
 }

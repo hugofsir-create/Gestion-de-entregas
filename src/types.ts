@@ -23,5 +23,4 @@ export interface KPIStats {
   onTime: number;
   late: number;
   pending: number;
-  expiringSoon: number; // Within 5 days
 }

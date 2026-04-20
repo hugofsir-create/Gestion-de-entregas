@@ -17,16 +17,16 @@ export const parseExcelFile = (file: File): Promise<Order[]> => {
         const dataRows = jsonData.length > 0 ? jsonData.slice(1) : [];
 
         const orders: Order[] = dataRows.map((row: any, index) => {
-          const tmsStatus = row['A'] || 'N/A';
+          const tmsStatus = String(row['A'] || 'N/A').trim();
           const createdAtRaw = row['B'];
-          const customerName = row['C'] || 'N/A';
-          const id = row['D'] || `ORD-${index + 1000}`;
-          const recipient = row['E'] || 'N/A';
-          const location = row['F'] || 'N/A';
+          const customerName = String(row['C'] || 'N/A').trim();
+          const id = String(row['D'] || `ORD-${index + 1000}`).trim();
+          const recipient = String(row['E'] || 'N/A').trim();
+          const location = String(row['F'] || 'N/A').trim();
           const packages = Number(row['G']) || 0;
           const weight = Number(row['H']) || 0;
           const deadlineRaw = row['I'];
-          const shift = row['J'] || 'N/A';
+          const shift = String(row['J'] || 'N/A').trim();
           
           const parseDate = (val: any) => {
             if (!val) return new Date();
