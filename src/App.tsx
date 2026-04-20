@@ -48,19 +48,34 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 
 type FilterType = 'all' | 'onTime' | 'late' | 'pending' | 'expiringSoon';
 
 export default function App() {
-  const [orders, setOrders] = useState<Order[]>(mockOrders);
+  const [orders, setOrders] = useState<Order[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [activeFilter, setActiveFilter] = useState<FilterType>('all');
+  const [selectedCustomer, setSelectedCustomer] = useState<string>('all');
   const [isImporting, setIsImporting] = useState(false);
+  const [showSplash, setShowSplash] = useState(true);
 
   // Apply dark mode on mount
   useEffect(() => {
     document.documentElement.classList.add('dark');
+    
+    // Auto-hide splash after 3 seconds
+    const timer = setTimeout(() => {
+      setShowSplash(false);
+    }, 3000);
+    return () => clearTimeout(timer);
   }, []);
 
   const kpis = useMemo((): KPIStats => {
@@ -92,8 +107,14 @@ export default function App() {
     return stats;
   }, [orders]);
 
+  const customers = useMemo(() => {
+    const list = Array.from(new Set(orders.map(o => o.customerName)));
+    return (list as string[]).sort((a, b) => a.localeCompare(b));
+  }, [orders]);
+
   const filteredOrders = useMemo(() => {
     return orders.filter(order => {
+      // 1. Search term filter
       const matchesSearch = 
         order.customerName.toLowerCase().includes(searchTerm.toLowerCase()) ||
         order.id.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -104,31 +125,36 @@ export default function App() {
 
       if (!matchesSearch) return false;
 
+      // 2. KPI Filter
       const now = new Date();
-      if (activeFilter === 'all') return true;
+      let matchesKPI = true;
       if (activeFilter === 'onTime') {
-        return order.status === 'delivered' && 
-               order.actualDeliveryDate && 
-               order.actualDeliveryDate <= order.deliveryDeadline;
-      }
-      if (activeFilter === 'late') {
-        // Late if delivered late OR pending and past deadline
+        matchesKPI = order.status === 'delivered' && 
+                     order.actualDeliveryDate && 
+                     order.actualDeliveryDate <= order.deliveryDeadline;
+      } else if (activeFilter === 'late') {
         const isDeliveredLate = order.status === 'delivered' && 
                                 order.actualDeliveryDate && 
                                 order.actualDeliveryDate > order.deliveryDeadline;
         const isPendingLate = order.status === 'pending' && isPast(order.deliveryDeadline);
-        return isDeliveredLate || isPendingLate;
-      }
-      if (activeFilter === 'pending') {
-        return order.status === 'pending';
-      }
-      if (activeFilter === 'expiringSoon') {
+        matchesKPI = isDeliveredLate || isPendingLate;
+      } else if (activeFilter === 'pending') {
+        matchesKPI = order.status === 'pending';
+      } else if (activeFilter === 'expiringSoon') {
         const daysLeft = differenceInDays(order.deliveryDeadline, now);
-        return order.status === 'pending' && daysLeft >= 0 && daysLeft <= 5 && !isPast(order.deliveryDeadline);
+        matchesKPI = order.status === 'pending' && daysLeft >= 0 && daysLeft <= 5 && !isPast(order.deliveryDeadline);
       }
+
+      if (!matchesKPI) return false;
+
+      // 3. Customer Filter
+      if (selectedCustomer !== 'all' && order.customerName !== selectedCustomer) {
+        return false;
+      }
+
       return true;
     });
-  }, [orders, searchTerm, activeFilter]);
+  }, [orders, searchTerm, activeFilter, selectedCustomer]);
 
   const handleFileUpload = async (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -198,17 +224,58 @@ export default function App() {
     <div className="min-h-screen bg-[#0b0e14] text-[#e6edf3] font-sans p-6 overflow-x-hidden selection:bg-blue-500/30">
       <Toaster theme="dark" position="top-right" richColors />
       
+      <AnimatePresence>
+        {showSplash && (
+          <motion.div 
+            initial={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center bg-[#0d1117]"
+          >
+            <div className="flex flex-col items-center gap-6">
+              <motion.div
+                initial={{ scale: 0.8, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                transition={{ duration: 0.8, ease: "easeOut" }}
+                className="relative"
+              >
+                <div className="w-24 h-24 border-4 border-[#3fb950] border-t-transparent rounded-full animate-spin" />
+                <Package className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-10 h-10 text-[#3fb950]" />
+              </motion.div>
+              
+              <div className="overflow-hidden flex flex-col items-center text-center">
+                <motion.h1 
+                  initial={{ y: 40, opacity: 0 }}
+                  animate={{ y: 0, opacity: 1 }}
+                  transition={{ delay: 0.5, duration: 0.6 }}
+                  className="text-4xl font-bold tracking-tighter text-[#e6edf3]"
+                >
+                  <span className="text-[#3fb950]">Calico</span> S.A.
+                </motion.h1>
+                <motion.p
+                  initial={{ y: 20, opacity: 0 }}
+                  animate={{ y: 0, opacity: 1 }}
+                  transition={{ delay: 0.8, duration: 0.6 }}
+                  className="text-[#8b949e] text-sm mt-1 uppercase tracking-widest"
+                >
+                  Gestión Inteligente de Entregas
+                </motion.p>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+      
       {/* Header */}
       <header className="max-w-7xl mx-auto flex flex-col md:flex-row md:items-center justify-between gap-6 mb-8">
         <div className="flex items-center gap-3">
-          <div className="w-8 h-8 bg-gradient-to-br from-[#3b82f6] to-[#2563eb] rounded-lg flex items-center justify-center font-bold text-white shadow-lg">
-            L
+          <div className="w-8 h-8 bg-[#3fb950] rounded-lg flex items-center justify-center font-bold text-white shadow-lg">
+            C
           </div>
           <div className="flex items-baseline gap-2">
             <h1 className="text-[22px] font-semibold tracking-tight text-[#e6edf3]">
-              LogisTrack Pro
+              Gestor de Entregas
             </h1>
-            <span className="text-[#8b949e] text-sm">v2.4</span>
+            <span className="text-[#8b949e] text-sm">Calico S.A.</span>
           </div>
         </div>
 
@@ -296,14 +363,35 @@ export default function App() {
 
         {/* Filters and Table */}
         <div className="space-y-4">
-          <div className="relative group max-w-md">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#8b949e]" />
-            <Input 
-              placeholder="Buscar pedidos o clientes..." 
-              className="pl-10 bg-[#161b22] border-[#30363d] focus:border-[#8b949e] focus:ring-0 text-[#e6edf3] placeholder:text-[#8b949e]"
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-            />
+          <div className="flex flex-col sm:flex-row gap-4">
+            <div className="relative group flex-1 max-w-md">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#8b949e]" />
+              <Input 
+                placeholder="Buscar pedidos o clientes..." 
+                className="pl-10 bg-[#161b22] border-[#30363d] focus:border-[#8b949e] focus:ring-0 text-[#e6edf3] placeholder:text-[#8b949e]"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+              />
+            </div>
+
+            <div className="w-full sm:w-[250px]">
+              <Select value={selectedCustomer} onValueChange={setSelectedCustomer}>
+                <SelectTrigger className="bg-[#161b22] border-[#30363d] text-[#e6edf3] focus:ring-0 focus:border-[#8b949e]">
+                  <div className="flex items-center gap-2">
+                    <Filter className="w-4 h-4 text-[#8b949e]" />
+                    <SelectValue placeholder="Filtrar por Cliente" />
+                  </div>
+                </SelectTrigger>
+                <SelectContent className="bg-[#161b22] border-[#30363d] text-[#e6edf3]">
+                  <SelectItem value="all">Todos los Clientes</SelectItem>
+                  {customers.map(customer => (
+                    <SelectItem key={customer} value={customer}>
+                      {customer}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
           </div>
 
           <Card className="bg-[#161b22] border-[#30363d] rounded-xl overflow-hidden shadow-none">
