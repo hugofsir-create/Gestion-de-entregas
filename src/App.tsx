@@ -257,7 +257,7 @@ export default function App() {
                   transition={{ delay: 0.8, duration: 0.6 }}
                   className="text-[#8b949e] text-sm mt-1 uppercase tracking-widest"
                 >
-                  Gestión Inteligente de Entregas
+                  Logística Integral
                 </motion.p>
               </div>
             </div>
@@ -400,10 +400,10 @@ export default function App() {
               <div className="text-[#8b949e] text-[12px]">Última importación: Hoy, {format(new Date(), 'hh:mm a')}</div>
             </div>
             <div className="overflow-x-auto w-fit max-w-full border-[#30363d] border rounded-lg">
-              <Table className="border-collapse table-fixed w-[1150px]">
+              <Table className="border-collapse table-fixed w-[1200px]">
                 <TableHeader>
                   <TableRow className="border-[#30363d] hover:bg-transparent">
-                    <TableHead className="text-[#8b949e] uppercase text-[10px] h-10 px-2 whitespace-nowrap w-[110px]">ID Pedido</TableHead>
+                    <TableHead className="text-[#8b949e] uppercase text-[10px] h-10 px-2 whitespace-nowrap w-[160px]">ID Pedido</TableHead>
                     <TableHead className="text-[#8b949e] uppercase text-[10px] h-10 px-2 whitespace-nowrap w-[110px]">Estado TMS</TableHead>
                     <TableHead className="text-[#8b949e] uppercase text-[10px] h-10 px-2 whitespace-nowrap w-[180px]">Cliente</TableHead>
                     <TableHead className="text-[#8b949e] uppercase text-[10px] h-10 px-2 whitespace-nowrap w-[160px]">Destinatario</TableHead>
