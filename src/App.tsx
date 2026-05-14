@@ -91,18 +91,22 @@ export default function App() {
     };
 
     orders.forEach(order => {
-      if (order.status === 'delivered') {
-        if (order.actualDeliveryDate && order.actualDeliveryDate <= order.deliveryDeadline) {
-          stats.onTime++;
-        } else {
-          stats.late++;
-        }
+      const isLate = (order.status === 'delivered' && order.actualDeliveryDate && order.actualDeliveryDate > order.deliveryDeadline) || 
+                      (order.status === 'pending' && isPast(order.deliveryDeadline));
+      
+      const daysLeft = differenceInDays(order.deliveryDeadline, now);
+      const isExpiringSoon = order.status === 'pending' && !isLate && daysLeft >= 0 && daysLeft <= 5;
+
+      if (isLate) {
+        stats.late++;
+      } else if (isExpiringSoon) {
+        stats.expiringSoon++;
       } else {
+        stats.onTime++;
+      }
+
+      if (order.status === 'pending') {
         stats.pending++;
-        const daysLeft = differenceInDays(order.deliveryDeadline, now);
-        if (daysLeft >= 0 && daysLeft <= 5 && !isPast(order.deliveryDeadline)) {
-          stats.expiringSoon++;
-        }
       }
     });
 
@@ -135,21 +139,22 @@ export default function App() {
       // 2. KPI Filter
       const now = new Date();
       let matchesKPI = true;
+      
+      const isLate = (order.status === 'delivered' && order.actualDeliveryDate && order.actualDeliveryDate > order.deliveryDeadline) || 
+                      (order.status === 'pending' && isPast(order.deliveryDeadline));
+      
+      const daysLeft = differenceInDays(order.deliveryDeadline, now);
+      const isExpiringSoon = order.status === 'pending' && !isLate && daysLeft >= 0 && daysLeft <= 5;
+      const isOnTime = !isLate && !isExpiringSoon;
+
       if (activeFilter === 'onTime') {
-        matchesKPI = order.status === 'delivered' && 
-                     order.actualDeliveryDate && 
-                     order.actualDeliveryDate <= order.deliveryDeadline;
+        matchesKPI = isOnTime;
       } else if (activeFilter === 'late') {
-        const isDeliveredLate = order.status === 'delivered' && 
-                                order.actualDeliveryDate && 
-                                order.actualDeliveryDate > order.deliveryDeadline;
-        const isPendingLate = order.status === 'pending' && isPast(order.deliveryDeadline);
-        matchesKPI = isDeliveredLate || isPendingLate;
+        matchesKPI = isLate;
       } else if (activeFilter === 'pending') {
         matchesKPI = order.status === 'pending';
       } else if (activeFilter === 'expiringSoon') {
-        const daysLeft = differenceInDays(order.deliveryDeadline, now);
-        matchesKPI = order.status === 'pending' && daysLeft >= 0 && daysLeft <= 5 && !isPast(order.deliveryDeadline);
+        matchesKPI = isExpiringSoon;
       }
 
       if (!matchesKPI) return false;
@@ -198,8 +203,10 @@ export default function App() {
   };
 
   const getStatusDisplay = (order: Order) => {
+    const isLate = (order.status === 'delivered' && order.actualDeliveryDate && order.actualDeliveryDate > order.deliveryDeadline) || 
+                   (order.status === 'pending' && isPast(order.deliveryDeadline));
+
     if (order.status === 'delivered') {
-      const onTime = order.actualDeliveryDate && order.actualDeliveryDate <= order.deliveryDeadline;
       return (
         <div className="flex flex-col gap-1">
           <div className="flex items-center gap-1.5 text-emerald-500 font-medium text-sm">
@@ -207,27 +214,35 @@ export default function App() {
           </div>
           <span className={cn(
             "text-[10px] px-2 py-0.5 rounded-full w-fit border font-medium uppercase tracking-wider",
-            onTime ? "text-emerald-500 border-emerald-500/30 bg-emerald-500/10" : "text-rose-500 border-rose-500/30 bg-rose-500/10"
+            !isLate ? "text-emerald-500 border-emerald-500/30 bg-emerald-500/10" : "text-rose-500 border-rose-500/30 bg-rose-500/10"
           )}>
-            {onTime ? 'A Tiempo' : 'Fuera de Tiempo'}
+            {!isLate ? 'A Tiempo' : 'Fuera de Tiempo'}
           </span>
         </div>
       );
     }
 
-    const isExpiring = differenceInDays(order.deliveryDeadline, new Date()) <= 5 && !isPast(order.deliveryDeadline);
-    const isOverdue = isPast(order.deliveryDeadline);
+    const daysLeft = differenceInDays(order.deliveryDeadline, new Date());
+    const isExpiring = !isLate && daysLeft >= 0 && daysLeft <= 5;
 
     return (
       <div className="flex flex-col gap-1">
         <div className="flex items-center gap-1.5 text-blue-400 font-medium text-sm">
           <Clock className="w-4 h-4" /> Pendiente
         </div>
-        {isOverdue ? (
+        {isLate ? (
           <span className="text-[10px] px-2 py-0.5 rounded-full w-fit border border-rose-500/30 bg-rose-500/10 text-rose-500 font-medium uppercase tracking-wider">
-            Vencido
+            Fuera de Tiempo
           </span>
-        ) : null}
+        ) : isExpiring ? (
+          <span className="text-[10px] px-2 py-0.5 rounded-full w-fit border border-amber-500/30 bg-amber-500/10 text-amber-500 font-medium uppercase tracking-wider">
+            Próximo a Vencer
+          </span>
+        ) : (
+          <span className="text-[10px] px-2 py-0.5 rounded-full w-fit border border-emerald-500/30 bg-emerald-500/10 text-emerald-500 font-medium uppercase tracking-wider">
+            En Tiempo
+          </span>
+        )}
       </div>
     );
   };
@@ -438,9 +453,13 @@ export default function App() {
           </div>
 
           <Card className="bg-[#161b22] border-[#30363d] rounded-xl overflow-hidden shadow-none">
-            <div className="px-6 py-4 border-b border-[#30363d] flex justify-between items-center bg-[#161b22]">
+            <div className="px-6 py-4 border-b border-[#30363d] flex flex-col md:flex-row justify-between items-start md:items-center gap-2 bg-[#161b22]">
               <h2 className="text-base font-medium text-[#e6edf3]">Gestión de Entregas Pendientes</h2>
-              <div className="text-[#8b949e] text-[12px]">Última importación: Hoy, {format(new Date(), 'hh:mm a')}</div>
+              <div className="flex items-center gap-3 text-[#8b949e] text-[12px]">
+                <span>Mostrando: <strong className="text-[#e6edf3]">{filteredOrders.length}</strong> resultados</span>
+                <span className="w-px h-3 bg-[#30363d] hidden sm:block" />
+                <span>Última importación: Hoy, {format(new Date(), 'hh:mm a')}</span>
+              </div>
             </div>
             <div className="overflow-x-auto w-fit max-w-full border-[#30363d] border rounded-lg">
               <Table className="border-collapse table-fixed w-[1200px]">
@@ -532,16 +551,18 @@ function getPriorityVisual(priority: string) {
 }
 
 function getStatusTag(order: Order) {
+  const isLate = (order.status === 'delivered' && order.actualDeliveryDate && order.actualDeliveryDate > order.deliveryDeadline) || 
+                 (order.status === 'pending' && isPast(order.deliveryDeadline));
+
   if (order.status === 'delivered') {
-    const onTime = order.actualDeliveryDate && order.actualDeliveryDate <= order.deliveryDeadline;
-    return onTime 
+    return !isLate 
       ? <span className="px-2 py-1 rounded bg-[#3fb95015] text-[#3fb950] text-[10px] font-bold uppercase">A Tiempo</span>
       : <span className="px-2 py-1 rounded bg-[#f8514915] text-[#f85149] text-[10px] font-bold uppercase">Fuera de Tiempo</span>;
   }
 
   const daysLeft = differenceInDays(order.deliveryDeadline, new Date());
-  if (isPast(order.deliveryDeadline)) {
-    return <span className="px-2 py-1 rounded bg-[#f8514915] text-[#f85149] text-[10px] font-bold uppercase">Atrasado</span>;
+  if (isLate) {
+    return <span className="px-2 py-1 rounded bg-[#f8514915] text-[#f85149] text-[10px] font-bold uppercase">Fuera de Tiempo</span>;
   }
   if (daysLeft >= 0 && daysLeft <= 5) {
     return <span className="px-2 py-1 rounded bg-[#d2992215] text-[#d29922] text-[10px] font-bold uppercase whitespace-nowrap">Próximo a Vencer</span>;
