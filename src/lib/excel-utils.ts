@@ -1,6 +1,6 @@
 import * as XLSX from 'xlsx';
 import { Order, OrderStatus } from '../types';
-import { parse, isValid } from 'date-fns';
+import { parse, isValid, format } from 'date-fns';
 
 export const parseExcelFile = (file: File): Promise<Order[]> => {
   return new Promise((resolve, reject) => {
@@ -78,4 +78,25 @@ export const parseExcelFile = (file: File): Promise<Order[]> => {
     reader.onerror = reject;
     reader.readAsArrayBuffer(file);
   });
+};
+
+export const exportToExcel = (orders: Order[], fileName: string) => {
+  const data = orders.map(order => ({
+    'ID Pedido': order.id,
+    'Estado TMS': order.tmsStatus,
+    'Cliente': order.customerName,
+    'Destinatario': order.recipient,
+    'Localidad': order.location,
+    'Creación': format(order.createdAt, 'dd/MM/yyyy'),
+    'Vencimiento': format(order.deliveryDeadline, 'dd/MM/yyyy'),
+    'Turno': order.shift,
+    'Bultos': order.packages,
+    'Kilos': order.weight,
+    'Estado Interno': order.status === 'delivered' ? 'Entregado' : 'Pendiente'
+  }));
+
+  const worksheet = XLSX.utils.json_to_sheet(data);
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, worksheet, 'Pendientes');
+  XLSX.writeFile(workbook, `${fileName}.xlsx`);
 };

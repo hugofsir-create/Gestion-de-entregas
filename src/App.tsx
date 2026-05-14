@@ -3,6 +3,7 @@ import { useState, useMemo, useEffect, ChangeEvent, ReactNode } from 'react';
 import { 
   Plus, 
   FileUp, 
+  FileDown,
   Search, 
   Clock, 
   CheckCircle2, 
@@ -20,7 +21,7 @@ import { toast, Toaster } from 'sonner';
 
 import { Order, KPIStats } from './types';
 import { mockOrders } from './mockData';
-import { parseExcelFile } from './lib/excel-utils';
+import { parseExcelFile, exportToExcel } from './lib/excel-utils';
 
 import { 
   Card, 
@@ -64,6 +65,7 @@ export default function App() {
   const [searchTerm, setSearchTerm] = useState('');
   const [activeFilter, setActiveFilter] = useState<FilterType>('all');
   const [selectedCustomer, setSelectedCustomer] = useState<string>('all');
+  const [selectedTmsStatus, setSelectedTmsStatus] = useState<string>('all');
   const [isImporting, setIsImporting] = useState(false);
   const [showSplash, setShowSplash] = useState(true);
 
@@ -112,6 +114,11 @@ export default function App() {
     return (list as string[]).sort((a, b) => a.localeCompare(b));
   }, [orders]);
 
+  const tmsStatuses = useMemo(() => {
+    const list = Array.from(new Set(orders.map(o => o.tmsStatus)));
+    return (list as string[]).sort((a, b) => a.localeCompare(b));
+  }, [orders]);
+
   const filteredOrders = useMemo(() => {
     return orders.filter(order => {
       // 1. Search term filter
@@ -152,9 +159,14 @@ export default function App() {
         return false;
       }
 
+      // 4. TMS Status Filter
+      if (selectedTmsStatus !== 'all' && order.tmsStatus !== selectedTmsStatus) {
+        return false;
+      }
+
       return true;
     });
-  }, [orders, searchTerm, activeFilter, selectedCustomer]);
+  }, [orders, searchTerm, activeFilter, selectedCustomer, selectedTmsStatus]);
 
   const handleFileUpload = async (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -279,14 +291,23 @@ export default function App() {
           </div>
         </div>
 
-        <Dialog>
-          <DialogTrigger
-            render={
-              <Button className="bg-[#238636] hover:bg-[#2ea043] text-white border-none gap-2 px-5 font-medium rounded-md">
-                <FileUp className="w-4 h-4" /> Actualizar Excel
-              </Button>
-            }
-          />
+        <div className="flex items-center gap-2">
+          <Button 
+            onClick={() => exportToExcel(filteredOrders, `Pendientes_Calico_${format(new Date(), 'dd-MM-yyyy')}`)}
+            className="bg-[#21262d] hover:bg-[#30363d] text-[#c9d1d9] border-[#30363d] border gap-2 px-4 font-medium rounded-md"
+            disabled={filteredOrders.length === 0}
+          >
+            <FileDown className="w-4 h-4" /> Exportar
+          </Button>
+
+          <Dialog>
+            <DialogTrigger
+              render={
+                <Button className="bg-[#238636] hover:bg-[#2ea043] text-white border-none gap-2 px-5 font-medium rounded-md">
+                  <FileUp className="w-4 h-4" /> Actualizar Excel
+                </Button>
+              }
+            />
           <DialogContent className="bg-[#161b22] border-[#30363d] text-[#e6edf3] max-w-lg">
             <DialogHeader>
               <DialogTitle>Importar Datos de Pedidos</DialogTitle>
@@ -326,7 +347,8 @@ export default function App() {
             )}
           </DialogContent>
         </Dialog>
-      </header>
+      </div>
+    </header>
 
       <main className="max-w-7xl mx-auto space-y-6">
         {/* Metrics Grid */}
@@ -363,8 +385,8 @@ export default function App() {
 
         {/* Filters and Table */}
         <div className="space-y-4">
-          <div className="flex flex-col sm:flex-row gap-4">
-            <div className="relative group flex-1 max-w-md">
+          <div className="flex flex-col sm:flex-row gap-3">
+            <div className="relative group flex-1">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#8b949e]" />
               <Input 
                 placeholder="Buscar pedidos o clientes..." 
@@ -374,23 +396,44 @@ export default function App() {
               />
             </div>
 
-            <div className="w-full sm:w-[250px]">
-              <Select value={selectedCustomer} onValueChange={setSelectedCustomer}>
-                <SelectTrigger className="bg-[#161b22] border-[#30363d] text-[#e6edf3] focus:ring-0 focus:border-[#8b949e]">
-                  <div className="flex items-center gap-2">
-                    <Filter className="w-4 h-4 text-[#8b949e]" />
-                    <SelectValue placeholder="Filtrar por Cliente" />
-                  </div>
-                </SelectTrigger>
-                <SelectContent className="bg-[#161b22] border-[#30363d] text-[#e6edf3]">
-                  <SelectItem value="all">Todos los Clientes</SelectItem>
-                  {customers.map(customer => (
-                    <SelectItem key={customer} value={customer}>
-                      {customer}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+            <div className="flex flex-col sm:flex-row gap-3">
+              <div className="w-full sm:w-[200px]">
+                <Select value={selectedCustomer} onValueChange={setSelectedCustomer}>
+                  <SelectTrigger className="bg-[#161b22] border-[#30363d] text-[#e6edf3] focus:ring-0 focus:border-[#8b949e] h-10">
+                    <div className="flex items-center gap-2 truncate">
+                      <Filter className="w-4 h-4 shrink-0 text-[#8b949e]" />
+                      <SelectValue placeholder="Cliente" />
+                    </div>
+                  </SelectTrigger>
+                  <SelectContent className="bg-[#161b22] border-[#30363d] text-[#e6edf3]">
+                    <SelectItem value="all">Todos los Clientes</SelectItem>
+                    {customers.map(customer => (
+                      <SelectItem key={customer} value={customer}>
+                        {customer}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="w-full sm:w-[200px]">
+                <Select value={selectedTmsStatus} onValueChange={setSelectedTmsStatus}>
+                  <SelectTrigger className="bg-[#161b22] border-[#30363d] text-[#e6edf3] focus:ring-0 focus:border-[#8b949e] h-10">
+                    <div className="flex items-center gap-2 truncate">
+                      <Package className="w-4 h-4 shrink-0 text-[#8b949e]" />
+                      <SelectValue placeholder="Estado TMS" />
+                    </div>
+                  </SelectTrigger>
+                  <SelectContent className="bg-[#161b22] border-[#30363d] text-[#e6edf3]">
+                    <SelectItem value="all">Todos los Estados TMS</SelectItem>
+                    {tmsStatuses.map(status => (
+                      <SelectItem key={status} value={status}>
+                        {status}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
           </div>
 
