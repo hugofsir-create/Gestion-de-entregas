@@ -8,7 +8,7 @@ export const parseExcelFile = (file: File): Promise<Order[]> => {
     reader.onload = (e) => {
       try {
         const data = new Uint8Array(e.target?.result as ArrayBuffer);
-        const workbook = XLSX.read(data, { type: 'array' });
+        const workbook = XLSX.read(data, { type: 'array', cellDates: true });
         const firstSheetName = workbook.SheetNames[0];
         const worksheet = workbook.Sheets[firstSheetName];
         const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 'A' });
@@ -30,16 +30,50 @@ export const parseExcelFile = (file: File): Promise<Order[]> => {
           
           const parseDate = (val: any) => {
             if (!val) return new Date();
-            if (val instanceof Date) return val;
-            if (typeof val === 'number') {
-              return new Date((val - 25569) * 86400 * 1000);
+            if (val instanceof Date) {
+              return isValid(val) ? val : new Date();
             }
-            const formats = ['yyyy-MM-dd', 'dd/MM/yyyy', 'MM/dd/yyyy', 'dd-MM-yyyy', 'HH:mm:ss'];
-            for (const f of formats) {
-              const d = parse(String(val), f, new Date());
+            if (typeof val === 'number') {
+              const d = new Date((val - 25569) * 86400 * 1000);
+              return isValid(d) ? d : new Date();
+            }
+
+            const strVal = String(val).trim();
+            if (!strVal) return new Date();
+
+            // Handle stringified Excel serial numbers (e.g. "45423" or similar)
+            const numVal = Number(strVal);
+            if (!isNaN(numVal) && isFinite(numVal) && numVal > 10000 && numVal < 100000) {
+              const d = new Date((numVal - 25569) * 86400 * 1000);
               if (isValid(d)) return d;
             }
-            return new Date(val);
+
+            // Common formats, checking dd/MM/yy, dd/MM/yyyy, d/M/yy first which are the most common Spanish/Argentine styles
+            const formats = [
+              'dd/MM/yyyy',
+              'dd/MM/yy',
+              'd/M/yyyy',
+              'd/M/yy',
+              'dd-MM-yyyy',
+              'dd-MM-yy',
+              'd-M-yyyy',
+              'd-M-yy',
+              'yyyy-MM-dd',
+              'MM/dd/yyyy',
+              'yy/MM/dd',
+              'yyyy/MM/dd',
+              'HH:mm:ss'
+            ];
+            
+            for (const f of formats) {
+              const d = parse(strVal, f, new Date());
+              if (isValid(d)) return d;
+            }
+
+            const nativeD = new Date(strVal);
+            if (isValid(nativeD)) return nativeD;
+
+            return new Date();
           };
 
           const createdAt = parseDate(createdAtRaw);
