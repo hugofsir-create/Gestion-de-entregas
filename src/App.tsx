@@ -12,7 +12,8 @@ import {
   ChevronRight,
   Filter,
   BarChart3,
-  CalendarDays
+  CalendarDays,
+  ClipboardList
 } from 'lucide-react';
 import { format, isPast, isWithinInterval, addDays, differenceInDays } from 'date-fns';
 import { es } from 'date-fns/locale';
@@ -22,6 +23,7 @@ import { toast, Toaster } from 'sonner';
 import { Order, KPIStats } from './types';
 import { mockOrders } from './mockData';
 import { parseExcelFile, exportToExcel } from './lib/excel-utils';
+import EfficiencyDashboard from '@/components/EfficiencyDashboard';
 
 import { 
   Card, 
@@ -61,7 +63,8 @@ import { cn } from "@/lib/utils";
 type FilterType = 'all' | 'onTime' | 'late' | 'pending' | 'expiringSoon';
 
 export default function App() {
-  const [orders, setOrders] = useState<Order[]>([]);
+  const [orders, setOrders] = useState<Order[]>(mockOrders);
+  const [activeTab, setActiveTab] = useState<'table' | 'dashboard'>('table');
   const [searchTerm, setSearchTerm] = useState('');
   const [activeFilter, setActiveFilter] = useState<FilterType>('all');
   const [selectedCustomer, setSelectedCustomer] = useState<string>('all');
@@ -398,8 +401,39 @@ export default function App() {
           />
         </section>
 
-        {/* Filters and Table */}
-        <div className="space-y-4">
+        {/* Navigation Tabs */}
+        <div className="flex border-b border-[#30363d]/80 mb-6 w-full">
+          <button
+            onClick={() => setActiveTab('table')}
+            className={cn(
+              "px-5 py-3 text-sm font-semibold border-b-2 flex items-center gap-2 transition-all relative cursor-pointer",
+              activeTab === 'table' 
+                ? "border-[#3fb950] text-[#3fb950] bg-[#3fb950]/5" 
+                : "border-transparent text-[#8b949e] hover:text-[#e6edf3] hover:bg-white/5"
+            )}
+          >
+            <ClipboardList className="w-4 h-4" />
+            Tabla de Pedidos
+          </button>
+          <button
+            onClick={() => setActiveTab('dashboard')}
+            className={cn(
+              "px-5 py-3 text-sm font-semibold border-b-2 flex items-center gap-2 transition-all relative cursor-pointer",
+              activeTab === 'dashboard' 
+                ? "border-[#3fb950] text-[#3fb950] bg-[#3fb950]/5" 
+                : "border-transparent text-[#8b949e] hover:text-[#e6edf3] hover:bg-white/5"
+            )}
+          >
+            <BarChart3 className="w-4 h-4" />
+            Tablero de Eficiencia
+            <Badge variant="outline" className="ml-1 bg-[#3fb950]/10 border-[#3fb950]/20 text-[#3fb950] text-[9px] px-1.5 py-0">Nuevo</Badge>
+          </button>
+        </div>
+
+        {activeTab === 'dashboard' ? (
+          <EfficiencyDashboard orders={orders} />
+        ) : (
+          <div className="space-y-4">
           <div className="flex flex-col sm:flex-row gap-3">
             <div className="relative group flex-1">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#8b949e]" />
@@ -524,6 +558,7 @@ export default function App() {
             </div>
           </Card>
         </div>
+        )}
       </main>
     </div>
   );
