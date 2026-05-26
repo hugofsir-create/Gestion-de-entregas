@@ -499,11 +499,11 @@ export default function App() {
                         {order.location}
                       </TableCell>
                       <TableCell className="px-2 py-2 text-[#8b949e] text-[12px] whitespace-nowrap">
-                        {format(order.createdAt, 'dd/MM/yy', { locale: es })}
+                        {format(order.createdAt, 'dd/MM/yyyy', { locale: es })}
                       </TableCell>
                       <TableCell className="px-2 py-2 whitespace-nowrap">
                         <div className="flex flex-col whitespace-nowrap leading-tight">
-                          <span className="text-[#e6edf3] text-[12px]">{format(order.deliveryDeadline, 'dd/MM/yy', { locale: es })}</span>
+                          <span className="text-[#e6edf3] text-[12px]">{format(order.deliveryDeadline, 'dd/MM/yyyy', { locale: es })}</span>
                           <span className="text-[10px] text-[#8b949e] font-mono">{getTimeLeft(order.deliveryDeadline)}</span>
                         </div>
                       </TableCell>
