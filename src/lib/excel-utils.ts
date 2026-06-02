@@ -26,7 +26,59 @@ export const parseExcelFile = (file: File): Promise<Order[]> => {
           const packages = Number(row['G']) || 0;
           const weight = Number(row['H']) || 0;
           const deadlineRaw = row['I'];
-          const shift = String(row['J'] || 'N/A').trim();
+          const shiftRaw = row['J'];
+
+          const parseShiftDate = (val: any): string => {
+            if (!val) return 'N/A';
+            if (val instanceof Date) {
+              return isValid(val) ? format(val, 'dd/MM/yy') : 'N/A';
+            }
+            if (typeof val === 'number') {
+              const d = new Date((val - 25569) * 86400 * 1000);
+              return isValid(d) ? format(d, 'dd/MM/yy') : String(val);
+            }
+
+            const strVal = String(val).trim();
+            if (!strVal || strVal.toLowerCase() === 'n/a') return 'N/A';
+
+            // Check if it's an Excel serial number as a string (e.g. "46166")
+            const numVal = Number(strVal);
+            if (!isNaN(numVal) && isFinite(numVal) && numVal > 10000 && numVal < 100000) {
+              const d = new Date((numVal - 25569) * 86400 * 1000);
+              if (isValid(d)) return format(d, 'dd/MM/yy');
+            }
+
+            // Let's try parsing as a date using common formats
+            const formats = [
+              'dd/MM/yyyy',
+              'dd/MM/yy',
+              'd/M/yyyy',
+              'd/M/yy',
+              'dd-MM-yyyy',
+              'dd-MM-yy',
+              'd-M-yyyy',
+              'd-M-yy',
+              'yyyy-MM-dd',
+              'MM/dd/yyyy',
+              'yy/MM/dd',
+              'yyyy/MM/dd',
+              'HH:mm:ss'
+            ];
+            
+            for (const f of formats) {
+              const d = parse(strVal, f, new Date());
+              if (isValid(d)) return format(d, 'dd/MM/yy');
+            }
+
+            const nativeD = new Date(strVal);
+            if (isValid(nativeD)) {
+              return format(nativeD, 'dd/MM/yy');
+            }
+
+            return strVal;
+          };
+
+          const shift = parseShiftDate(shiftRaw);
           
           const parseDate = (val: any) => {
             if (!val) return new Date();

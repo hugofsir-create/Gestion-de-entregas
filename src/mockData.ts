@@ -16,7 +16,7 @@ export const mockOrders: Order[] = [
     location: 'Buenos Aires',
     packages: 5,
     weight: 25.5,
-    shift: 'Mañana',
+    shift: '26/05/26',
   },
   {
     id: 'ORD-1002',
@@ -33,7 +33,7 @@ export const mockOrders: Order[] = [
     location: 'Córdoba',
     packages: 12,
     weight: 450.0,
-    shift: 'Tarde',
+    shift: '27/05/26',
   },
   {
     id: 'ORD-1003',
@@ -49,7 +49,7 @@ export const mockOrders: Order[] = [
     location: 'Rosario',
     packages: 3,
     weight: 15.2,
-    shift: 'Mañana',
+    shift: '26/05/26',
   },
   {
     id: 'ORD-1004',
@@ -66,7 +66,7 @@ export const mockOrders: Order[] = [
     location: 'Mendoza',
     packages: 20,
     weight: 120.5,
-    shift: 'Noche',
+    shift: '28/05/26',
   },
   {
     id: 'ORD-1005',
@@ -82,7 +82,7 @@ export const mockOrders: Order[] = [
     location: 'La Plata',
     packages: 8,
     weight: 35.8,
-    shift: 'Tarde',
+    shift: '27/05/26',
   },
   {
     id: 'ORD-1006',
@@ -98,7 +98,7 @@ export const mockOrders: Order[] = [
     location: 'Mar del Plata',
     packages: 2,
     weight: 85.0,
-    shift: 'Mañana',
+    shift: '26/05/26',
   },
   {
     id: 'ORD-1007',
@@ -114,6 +114,6 @@ export const mockOrders: Order[] = [
     location: 'Salta',
     packages: 1,
     weight: 10.0,
-    shift: 'Tarde',
+    shift: '27/05/26',
   }
 ];
