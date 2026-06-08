@@ -21,7 +21,6 @@ import { motion, AnimatePresence } from 'motion/react';
 import { toast, Toaster } from 'sonner';
 
 import { Order, KPIStats } from './types';
-import { mockOrders } from './mockData';
 import { parseExcelFile, exportToExcel } from './lib/excel-utils';
 import EfficiencyDashboard from '@/components/EfficiencyDashboard';
 
@@ -62,8 +61,29 @@ import { cn } from "@/lib/utils";
 
 type FilterType = 'all' | 'onTime' | 'late' | 'pending' | 'expiringSoon';
 
+// Helper functions for localStorage persistence
+const loadOrders = (): Order[] => {
+  try {
+    const saved = localStorage.getItem('calico_orders');
+    if (!saved) return [];
+    
+    const parsed = JSON.parse(saved);
+    if (!Array.isArray(parsed)) return [];
+    
+    return parsed.map((order: any) => ({
+      ...order,
+      createdAt: order.createdAt ? new Date(order.createdAt) : new Date(),
+      deliveryDeadline: order.deliveryDeadline ? new Date(order.deliveryDeadline) : new Date(),
+      actualDeliveryDate: order.actualDeliveryDate ? new Date(order.actualDeliveryDate) : undefined,
+    }));
+  } catch (error) {
+    console.error("Error loading orders from localStorage:", error);
+    return [];
+  }
+};
+
 export default function App() {
-  const [orders, setOrders] = useState<Order[]>(mockOrders);
+  const [orders, setOrders] = useState<Order[]>(() => loadOrders());
   const [activeTab, setActiveTab] = useState<'table' | 'dashboard'>('table');
   const [searchTerm, setSearchTerm] = useState('');
   const [activeFilter, setActiveFilter] = useState<FilterType>('all');
@@ -71,6 +91,7 @@ export default function App() {
   const [selectedTmsStatus, setSelectedTmsStatus] = useState<string>('all');
   const [isImporting, setIsImporting] = useState(false);
   const [showSplash, setShowSplash] = useState(true);
+  const [lastImported, setLastImported] = useState<string | null>(() => localStorage.getItem('calico_last_imported'));
 
   // Apply dark mode on mount
   useEffect(() => {
@@ -184,6 +205,13 @@ export default function App() {
       setIsImporting(true);
       const newOrders = await parseExcelFile(file);
       setOrders(newOrders);
+      
+      // Persist orders in localStorage
+      localStorage.setItem('calico_orders', JSON.stringify(newOrders));
+      const importTimeStr = format(new Date(), "dd/MM/yyyy 'a las' HH:mm:ss 'hs'");
+      localStorage.setItem('calico_last_imported', importTimeStr);
+      setLastImported(importTimeStr);
+
       toast.success('Importación Exitosa', {
         description: `Se han cargado ${newOrders.length} pedidos correctamente.`,
       });
@@ -369,195 +397,298 @@ export default function App() {
     </header>
 
       <main className="max-w-7xl mx-auto space-y-6">
-        {/* Metrics Grid */}
-        <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          <KPICard 
-            title="Total Pedidos" 
-            value={kpis.total} 
-            isActive={activeFilter === 'all'}
-            onClick={() => setActiveFilter('all')}
-            color="blue"
-          />
-          <KPICard 
-            title="En Tiempo" 
-            value={kpis.onTime} 
-            isActive={activeFilter === 'onTime'}
-            onClick={() => setActiveFilter('onTime')}
-            color="green"
-          />
-          <KPICard 
-            title="Fuera de Tiempo" 
-            value={kpis.late} 
-            isActive={activeFilter === 'late'}
-            onClick={() => setActiveFilter('late')}
-            color="red"
-          />
-          <KPICard 
-            title="Vencimiento < 5 Días" 
-            value={kpis.expiringSoon} 
-            isActive={activeFilter === 'expiringSoon'}
-            onClick={() => setActiveFilter('expiringSoon')}
-            color="orange"
-          />
-        </section>
-
-        {/* Navigation Tabs */}
-        <div className="flex border-b border-[#30363d]/80 mb-6 w-full">
-          <button
-            onClick={() => setActiveTab('table')}
-            className={cn(
-              "px-5 py-3 text-sm font-semibold border-b-2 flex items-center gap-2 transition-all relative cursor-pointer",
-              activeTab === 'table' 
-                ? "border-[#3fb950] text-[#3fb950] bg-[#3fb950]/5" 
-                : "border-transparent text-[#8b949e] hover:text-[#e6edf3] hover:bg-white/5"
-            )}
+        {orders.length === 0 ? (
+          <motion.div 
+            initial={{ opacity: 0, y: 15 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.5 }}
+            className="bg-[#161b22] border border-[#30363d] rounded-2xl p-8 md:p-12 text-center space-y-8 shadow-xl max-w-4xl mx-auto mt-6"
           >
-            <ClipboardList className="w-4 h-4" />
-            Tabla de Pedidos
-          </button>
-          <button
-            onClick={() => setActiveTab('dashboard')}
-            className={cn(
-              "px-5 py-3 text-sm font-semibold border-b-2 flex items-center gap-2 transition-all relative cursor-pointer",
-              activeTab === 'dashboard' 
-                ? "border-[#3fb950] text-[#3fb950] bg-[#3fb950]/5" 
-                : "border-transparent text-[#8b949e] hover:text-[#e6edf3] hover:bg-white/5"
-            )}
-          >
-            <BarChart3 className="w-4 h-4" />
-            Tablero de Eficiencia
-            <Badge variant="outline" className="ml-1 bg-[#3fb950]/10 border-[#3fb950]/20 text-[#3fb950] text-[9px] px-1.5 py-0">Nuevo</Badge>
-          </button>
-        </div>
+            <div className="flex flex-col items-center gap-4">
+              <div className="w-20 h-20 bg-[#3fb950]/10 rounded-2xl flex items-center justify-center border border-[#3fb950]/20 text-[#3fb950] relative">
+                <Package className="w-10 h-10 animate-pulse" />
+              </div>
+              <div className="space-y-2">
+                <h2 className="text-2xl font-bold tracking-tight text-[#e6edf3]">
+                  Bienvenido al Gestor de Entregas de Calico S.A.
+                </h2>
+                <p className="text-sm text-[#8b949e] max-w-lg mx-auto">
+                  La plataforma está lista para procesar los datos de operaciones y calcular las métricas tácticas de cumplimiento del SLA. Comience importando su archivo de pedidos Excel.
+                </p>
+              </div>
+            </div>
 
-        {activeTab === 'dashboard' ? (
-          <EfficiencyDashboard orders={orders} />
+            {/* Instruction Box */}
+            <div className="bg-[#0d1117] border border-[#30363d]/60 rounded-xl p-5 text-left max-w-xl mx-auto">
+              <h3 className="text-xs font-semibold text-[#8b949e] uppercase tracking-wider mb-3 flex items-center gap-1.5">
+                <ClipboardList className="w-3.5 h-3.5 text-[#3fb950]" />
+                Columnas requeridas en su archivo Excel:
+              </h3>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-y-2.5 gap-x-6 text-[12px] text-[#c9d1d9] font-mono">
+                <div className="flex items-center gap-2">
+                  <span className="text-[#3fb950] font-bold">A:</span>
+                  <span>Estado TMS</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-[#3fb950] font-bold">B:</span>
+                  <span>Fecha Creación</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-[#3fb950] font-bold">C:</span>
+                  <span>Cliente</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-[#3fb950] font-bold">D:</span>
+                  <span>ID Pedido</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-[#3fb950] font-bold">E:</span>
+                  <span>Destinatario</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-[#3fb950] font-bold">F:</span>
+                  <span>Localidad</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-[#3fb950] font-bold">G:</span>
+                  <span>Bultos</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-[#3fb950] font-bold">H:</span>
+                  <span>Kilos</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-[#3fb950] font-bold">I:</span>
+                  <span>Fecha Vencimiento</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-[#3fb950] font-bold">J:</span>
+                  <span>Turno</span>
+                </div>
+                <div className="flex items-center gap-2 col-span-1 sm:col-span-2 border-t border-[#30363d]/40 pt-2 mt-1">
+                  <span className="text-amber-500 font-bold">K (Opcional):</span>
+                  <span className="text-[#8b949e]">Fecha Real de Entrega</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Selector box */}
+            <div className="max-w-xl mx-auto">
+              <div className="flex flex-col items-center justify-center p-10 border-2 border-dashed border-[#30363d] rounded-xl bg-[#0b0e14]/50 hover:border-[#3fb950]/50 transition-colors cursor-pointer group relative animate-smooth">
+                <FileUp className="w-12 h-12 text-[#30363d] mb-4 group-hover:text-[#3fb950] transition-colors" />
+                <p className="text-sm font-medium text-[#e6edf3]">Seleccionar o arrastrar archivo Excel</p>
+                <p className="text-xs text-[#8b949e] mt-1 font-mono">Formatos admitidos: .xlsx, .xls</p>
+                <input 
+                  type="file" 
+                  accept=".xlsx, .xls"
+                  onChange={handleFileUpload}
+                  className="absolute inset-0 opacity-0 cursor-pointer"
+                />
+              </div>
+
+              {isImporting && (
+                <div className="flex items-center justify-center gap-2 text-sm text-[#8b949e] mt-4">
+                  <motion.div animate={{ rotate: 360 }} transition={{ repeat: Infinity, duration: 1, ease: "linear" }}>
+                    <Clock className="w-4 h-4 text-[#3fb950]" />
+                  </motion.div>
+                  Procesando datos e inicializando tablero...
+                </div>
+              )}
+            </div>
+          </motion.div>
         ) : (
-          <div className="space-y-4">
-          <div className="flex flex-col sm:flex-row gap-3">
-            <div className="relative group flex-1">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#8b949e]" />
-              <Input 
-                placeholder="Buscar pedidos o clientes..." 
-                className="pl-10 bg-[#161b22] border-[#30363d] focus:border-[#8b949e] focus:ring-0 text-[#e6edf3] placeholder:text-[#8b949e]"
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
+          <>
+            {/* Metrics Grid */}
+            <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+              <KPICard 
+                title="Total Pedidos" 
+                value={kpis.total} 
+                isActive={activeFilter === 'all'}
+                onClick={() => setActiveFilter('all')}
+                color="blue"
               />
+              <KPICard 
+                title="En Tiempo" 
+                value={kpis.onTime} 
+                isActive={activeFilter === 'onTime'}
+                onClick={() => setActiveFilter('onTime')}
+                color="green"
+              />
+              <KPICard 
+                title="Fuera de Tiempo" 
+                value={kpis.late} 
+                isActive={activeFilter === 'late'}
+                onClick={() => setActiveFilter('late')}
+                color="red"
+              />
+              <KPICard 
+                title="Vencimiento < 5 Días" 
+                value={kpis.expiringSoon} 
+                isActive={activeFilter === 'expiringSoon'}
+                onClick={() => setActiveFilter('expiringSoon')}
+                color="orange"
+              />
+            </section>
+
+            {/* Navigation Tabs */}
+            <div className="flex border-b border-[#30363d]/80 mb-6 w-full">
+              <button
+                onClick={() => setActiveTab('table')}
+                className={cn(
+                  "px-5 py-3 text-sm font-semibold border-b-2 flex items-center gap-2 transition-all relative cursor-pointer",
+                  activeTab === 'table' 
+                    ? "border-[#3fb950] text-[#3fb950] bg-[#3fb950]/5" 
+                    : "border-transparent text-[#8b949e] hover:text-[#e6edf3] hover:bg-white/5"
+                )}
+              >
+                <ClipboardList className="w-4 h-4" />
+                Tabla de Pedidos
+              </button>
+              <button
+                onClick={() => setActiveTab('dashboard')}
+                className={cn(
+                  "px-5 py-3 text-sm font-semibold border-b-2 flex items-center gap-2 transition-all relative cursor-pointer",
+                  activeTab === 'dashboard' 
+                    ? "border-[#3fb950] text-[#3fb950] bg-[#3fb950]/5" 
+                    : "border-transparent text-[#8b949e] hover:text-[#e6edf3] hover:bg-white/5"
+                )}
+              >
+                <BarChart3 className="w-4 h-4" />
+                Tablero de Eficiencia
+                <Badge variant="outline" className="ml-1 bg-[#3fb950]/10 border-[#3fb950]/20 text-[#3fb950] text-[9px] px-1.5 py-0">Nuevo</Badge>
+              </button>
             </div>
 
-            <div className="flex flex-col sm:flex-row gap-3">
-              <div className="w-full sm:w-[200px]">
-                <Select value={selectedCustomer} onValueChange={setSelectedCustomer}>
-                  <SelectTrigger className="bg-[#161b22] border-[#30363d] text-[#e6edf3] focus:ring-0 focus:border-[#8b949e] h-10">
-                    <div className="flex items-center gap-2 truncate">
-                      <Filter className="w-4 h-4 shrink-0 text-[#8b949e]" />
-                      <SelectValue placeholder="Cliente" />
-                    </div>
-                  </SelectTrigger>
-                  <SelectContent className="bg-[#161b22] border-[#30363d] text-[#e6edf3]">
-                    <SelectItem value="all">Todos los Clientes</SelectItem>
-                    {customers.map(customer => (
-                      <SelectItem key={customer} value={customer}>
-                        {customer}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
+            {activeTab === 'dashboard' ? (
+              <EfficiencyDashboard orders={orders} />
+            ) : (
+              <div className="space-y-4">
+              <div className="flex flex-col sm:flex-row gap-3">
+                <div className="relative group flex-1">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#8b949e]" />
+                  <Input 
+                    placeholder="Buscar pedidos o clientes..." 
+                    className="pl-10 bg-[#161b22] border-[#30363d] focus:border-[#8b949e] focus:ring-0 text-[#e6edf3] placeholder:text-[#8b949e]"
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                  />
+                </div>
 
-              <div className="w-full sm:w-[200px]">
-                <Select value={selectedTmsStatus} onValueChange={setSelectedTmsStatus}>
-                  <SelectTrigger className="bg-[#161b22] border-[#30363d] text-[#e6edf3] focus:ring-0 focus:border-[#8b949e] h-10">
-                    <div className="flex items-center gap-2 truncate">
-                      <Package className="w-4 h-4 shrink-0 text-[#8b949e]" />
-                      <SelectValue placeholder="Estado TMS" />
-                    </div>
-                  </SelectTrigger>
-                  <SelectContent className="bg-[#161b22] border-[#30363d] text-[#e6edf3]">
-                    <SelectItem value="all">Todos los Estados TMS</SelectItem>
-                    {tmsStatuses.map(status => (
-                      <SelectItem key={status} value={status}>
-                        {status}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-          </div>
-
-          <Card className="bg-[#161b22] border-[#30363d] rounded-xl overflow-hidden shadow-none">
-            <div className="px-6 py-4 border-b border-[#30363d] flex flex-col md:flex-row justify-between items-start md:items-center gap-2 bg-[#161b22]">
-              <h2 className="text-base font-medium text-[#e6edf3]">Gestión de Entregas Pendientes</h2>
-              <div className="flex items-center gap-3 text-[#8b949e] text-[12px]">
-                <span>Mostrando: <strong className="text-[#e6edf3]">{filteredOrders.length}</strong> resultados</span>
-                <span className="w-px h-3 bg-[#30363d] hidden sm:block" />
-                <span>Última importación: Hoy, {format(new Date(), 'hh:mm a')}</span>
-              </div>
-            </div>
-            <div className="overflow-x-auto w-fit max-w-full border-[#30363d] border rounded-lg">
-              <Table className="border-collapse table-fixed w-[1200px]">
-                <TableHeader>
-                  <TableRow className="border-[#30363d] hover:bg-transparent">
-                    <TableHead className="text-[#8b949e] uppercase text-[10px] h-10 px-2 whitespace-nowrap w-[160px]">ID Pedido</TableHead>
-                    <TableHead className="text-[#8b949e] uppercase text-[10px] h-10 px-2 whitespace-nowrap w-[110px]">Estado TMS</TableHead>
-                    <TableHead className="text-[#8b949e] uppercase text-[10px] h-10 px-2 whitespace-nowrap w-[180px]">Cliente</TableHead>
-                    <TableHead className="text-[#8b949e] uppercase text-[10px] h-10 px-2 whitespace-nowrap w-[160px]">Destinatario</TableHead>
-                    <TableHead className="text-[#8b949e] uppercase text-[10px] h-10 px-2 whitespace-nowrap w-[140px]">Localidad</TableHead>
-                    <TableHead className="text-[#8b949e] uppercase text-[10px] h-10 px-2 whitespace-nowrap w-[80px]">Creación</TableHead>
-                    <TableHead className="text-[#8b949e] uppercase text-[10px] h-10 px-2 whitespace-nowrap w-[100px]">Vencimiento</TableHead>
-                    <TableHead className="text-[#8b949e] uppercase text-[10px] h-10 px-2 whitespace-nowrap w-[70px]">Turno</TableHead>
-                    <TableHead className="text-[#8b949e] uppercase text-[10px] h-10 px-2 whitespace-nowrap w-[80px] text-right">Bultos/Kg</TableHead>
-                    <TableHead className="text-[#8b949e] uppercase text-[10px] h-10 px-2 text-center whitespace-nowrap w-[120px]">Estado</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {filteredOrders.map((order) => (
-                    <TableRow 
-                      key={order.uniqueId}
-                      className="border-[#21262d] hover:bg-[#1c2128] transition-colors"
-                    >
-                      <TableCell className="px-2 py-2 font-mono text-[#58a6ff] text-[12px] whitespace-nowrap">#{order.id}</TableCell>
-                      <TableCell className="px-2 py-2 whitespace-nowrap">
-                        <Badge variant="outline" className="bg-[#161b22] border-[#30363d] text-[#8b949e] text-[9px] whitespace-nowrap">
-                          {order.tmsStatus}
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="px-2 py-2 font-medium text-[#e6edf3] text-[12px] whitespace-nowrap truncate" title={order.customerName}>
-                        {order.customerName}
-                      </TableCell>
-                      <TableCell className="px-2 py-2 text-[#e6edf3] text-[12px] whitespace-nowrap truncate" title={order.recipient}>
-                        {order.recipient}
-                      </TableCell>
-                      <TableCell className="px-2 py-2 text-[#8b949e] text-[12px] whitespace-nowrap truncate" title={order.location}>
-                        {order.location}
-                      </TableCell>
-                      <TableCell className="px-2 py-2 text-[#8b949e] text-[12px] whitespace-nowrap">
-                        {format(order.createdAt, 'dd/MM/yyyy', { locale: es })}
-                      </TableCell>
-                      <TableCell className="px-2 py-2 whitespace-nowrap">
-                        <div className="flex flex-col whitespace-nowrap leading-tight">
-                          <span className="text-[#e6edf3] text-[12px]">{format(order.deliveryDeadline, 'dd/MM/yyyy', { locale: es })}</span>
-                          <span className="text-[10px] text-[#8b949e] font-mono">{getTimeLeft(order.deliveryDeadline)}</span>
+                <div className="flex flex-col sm:flex-row gap-3">
+                  <div className="w-full sm:w-[200px]">
+                    <Select value={selectedCustomer} onValueChange={setSelectedCustomer}>
+                      <SelectTrigger className="bg-[#161b22] border-[#30363d] text-[#e6edf3] focus:ring-0 focus:border-[#8b949e] h-10">
+                        <div className="flex items-center gap-2 truncate">
+                          <Filter className="w-4 h-4 shrink-0 text-[#8b949e]" />
+                          <SelectValue placeholder="Cliente" />
                         </div>
-                      </TableCell>
-                      <TableCell className="px-2 py-2 text-[12px] whitespace-nowrap">{order.shift}</TableCell>
-                      <TableCell className="px-2 py-2 whitespace-nowrap text-right">
-                        <div className="flex flex-col text-[11px] text-[#8b949e] whitespace-nowrap leading-tight">
-                          <span>{order.packages} bultos</span>
-                          <span>{order.weight} kg</span>
+                      </SelectTrigger>
+                      <SelectContent className="bg-[#161b22] border-[#30363d] text-[#e6edf3]">
+                        <SelectItem value="all">Todos los Clientes</SelectItem>
+                        {customers.map(customer => (
+                          <SelectItem key={customer} value={customer}>
+                            {customer}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="w-full sm:w-[200px]">
+                    <Select value={selectedTmsStatus} onValueChange={setSelectedTmsStatus}>
+                      <SelectTrigger className="bg-[#161b22] border-[#30363d] text-[#e6edf3] focus:ring-0 focus:border-[#8b949e] h-10">
+                        <div className="flex items-center gap-2 truncate">
+                          <Package className="w-4 h-4 shrink-0 text-[#8b949e]" />
+                          <SelectValue placeholder="Estado TMS" />
                         </div>
-                      </TableCell>
-                      <TableCell className="px-2 py-2 text-center whitespace-nowrap">
-                        {getStatusTag(order)}
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+                      </SelectTrigger>
+                      <SelectContent className="bg-[#161b22] border-[#30363d] text-[#e6edf3]">
+                        <SelectItem value="all">Todos los Estados TMS</SelectItem>
+                        {tmsStatuses.map(status => (
+                          <SelectItem key={status} value={status}>
+                            {status}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+              </div>
+
+              <Card className="bg-[#161b22] border-[#30363d] rounded-xl overflow-hidden shadow-none">
+                <div className="px-6 py-4 border-b border-[#30363d] flex flex-col md:flex-row justify-between items-start md:items-center gap-2 bg-[#161b22]">
+                  <h2 className="text-base font-medium text-[#e6edf3]">Gestión de Entregas Pendientes</h2>
+                  <div className="flex items-center gap-3 text-[#8b949e] text-[12px]">
+                    <span>Mostrando: <strong className="text-[#e6edf3]">{filteredOrders.length}</strong> resultados</span>
+                    <span className="w-px h-3 bg-[#30363d] hidden sm:block" />
+                    <span>Última importación: {lastImported ? lastImported : 'Sin registros'}</span>
+                  </div>
+                </div>
+                <div className="overflow-x-auto w-fit max-w-full border-[#30363d] border rounded-lg">
+                  <Table className="border-collapse table-fixed w-[1200px]">
+                    <TableHeader>
+                      <TableRow className="border-[#30363d] hover:bg-transparent">
+                        <TableHead className="text-[#8b949e] uppercase text-[10px] h-10 px-2 whitespace-nowrap w-[160px]">ID Pedido</TableHead>
+                        <TableHead className="text-[#8b949e] uppercase text-[10px] h-10 px-2 whitespace-nowrap w-[110px]">Estado TMS</TableHead>
+                        <TableHead className="text-[#8b949e] uppercase text-[10px] h-10 px-2 whitespace-nowrap w-[180px]">Cliente</TableHead>
+                        <TableHead className="text-[#8b949e] uppercase text-[10px] h-10 px-2 whitespace-nowrap w-[160px]">Destinatario</TableHead>
+                        <TableHead className="text-[#8b949e] uppercase text-[10px] h-10 px-2 whitespace-nowrap w-[140px]">Localidad</TableHead>
+                        <TableHead className="text-[#8b949e] uppercase text-[10px] h-10 px-2 whitespace-nowrap w-[80px]">Creación</TableHead>
+                        <TableHead className="text-[#8b949e] uppercase text-[10px] h-10 px-2 whitespace-nowrap w-[100px]">Vencimiento</TableHead>
+                        <TableHead className="text-[#8b949e] uppercase text-[10px] h-10 px-2 whitespace-nowrap w-[70px]">Turno</TableHead>
+                        <TableHead className="text-[#8b949e] uppercase text-[10px] h-10 px-2 whitespace-nowrap w-[80px] text-right">Bultos/Kg</TableHead>
+                        <TableHead className="text-[#8b949e] uppercase text-[10px] h-10 px-2 text-center whitespace-nowrap w-[120px]">Estado</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {filteredOrders.map((order) => (
+                        <TableRow 
+                          key={order.uniqueId}
+                          className="border-[#21262d] hover:bg-[#1c2128] transition-colors"
+                        >
+                          <TableCell className="px-2 py-2 font-mono text-[#58a6ff] text-[12px] whitespace-nowrap">#{order.id}</TableCell>
+                          <TableCell className="px-2 py-2 whitespace-nowrap">
+                            <Badge variant="outline" className="bg-[#161b22] border-[#30363d] text-[#8b949e] text-[9px] whitespace-nowrap">
+                              {order.tmsStatus}
+                            </Badge>
+                          </TableCell>
+                          <TableCell className="px-2 py-2 font-medium text-[#e6edf3] text-[12px] whitespace-nowrap truncate" title={order.customerName}>
+                            {order.customerName}
+                          </TableCell>
+                          <TableCell className="px-2 py-2 text-[#e6edf3] text-[12px] whitespace-nowrap truncate" title={order.recipient}>
+                            {order.recipient}
+                          </TableCell>
+                          <TableCell className="px-2 py-2 text-[#8b949e] text-[12px] whitespace-nowrap truncate" title={order.location}>
+                            {order.location}
+                          </TableCell>
+                          <TableCell className="px-2 py-2 text-[#8b949e] text-[12px] whitespace-nowrap">
+                            {format(order.createdAt, 'dd/MM/yyyy', { locale: es })}
+                          </TableCell>
+                          <TableCell className="px-2 py-2 whitespace-nowrap">
+                            <div className="flex flex-col whitespace-nowrap leading-tight">
+                              <span className="text-[#e6edf3] text-[12px]">{format(order.deliveryDeadline, 'dd/MM/yyyy', { locale: es })}</span>
+                              <span className="text-[10px] text-[#8b949e] font-mono">{getTimeLeft(order.deliveryDeadline)}</span>
+                            </div>
+                          </TableCell>
+                          <TableCell className="px-2 py-2 text-[12px] whitespace-nowrap">{order.shift}</TableCell>
+                          <TableCell className="px-2 py-2 whitespace-nowrap text-right">
+                            <div className="flex flex-col text-[11px] text-[#8b949e] whitespace-nowrap leading-tight">
+                              <span>{order.packages} bultos</span>
+                              <span>{order.weight} kg</span>
+                            </div>
+                          </TableCell>
+                          <TableCell className="px-2 py-2 text-center whitespace-nowrap">
+                            {getStatusTag(order)}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              </Card>
             </div>
-          </Card>
-        </div>
+            )}
+          </>
         )}
       </main>
     </div>

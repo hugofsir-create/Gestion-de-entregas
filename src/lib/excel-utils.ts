@@ -27,6 +27,7 @@ export const parseExcelFile = (file: File): Promise<Order[]> => {
           const weight = Number(row['H']) || 0;
           const deadlineRaw = row['I'];
           const shiftRaw = row['J'];
+          const actualRaw = row['K'];
 
           const parseShiftDate = (val: any): string => {
             if (!val) return 'N/A';
@@ -130,11 +131,12 @@ export const parseExcelFile = (file: File): Promise<Order[]> => {
 
           const createdAt = parseDate(createdAtRaw);
           const deliveryDeadline = parseDate(deadlineRaw);
+          const actualDeliveryDate = actualRaw ? parseDate(actualRaw) : undefined;
           
           // Heuristic for status based on tms data or generic
           let status: OrderStatus = 'pending';
           const statusRaw = String(tmsStatus).toLowerCase();
-          if (statusRaw.includes('entregado') || statusRaw.includes('finalizado') || statusRaw.includes('delivered')) {
+          if (statusRaw.includes('entregado') || statusRaw.includes('finalizado') || statusRaw.includes('delivered') || actualDeliveryDate) {
             status = 'delivered';
           }
 
@@ -144,6 +146,7 @@ export const parseExcelFile = (file: File): Promise<Order[]> => {
             customerName: String(customerName),
             createdAt,
             deliveryDeadline,
+            actualDeliveryDate,
             status,
             tmsStatus: String(tmsStatus),
             recipient: String(recipient),
@@ -178,7 +181,8 @@ export const exportToExcel = (orders: Order[], fileName: string) => {
     'Turno': order.shift,
     'Bultos': order.packages,
     'Kilos': order.weight,
-    'Estado Interno': order.status === 'delivered' ? 'Entregado' : 'Pendiente'
+    'Estado Interno': order.status === 'delivered' ? 'Entregado' : 'Pendiente',
+    'Fecha Real de Entrega': order.actualDeliveryDate ? format(order.actualDeliveryDate, 'dd/MM/yyyy') : ''
   }));
 
   const worksheet = XLSX.utils.json_to_sheet(data);
