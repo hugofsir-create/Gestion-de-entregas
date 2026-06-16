@@ -13,7 +13,10 @@ import {
   Filter,
   BarChart3,
   CalendarDays,
-  ClipboardList
+  ClipboardList,
+  FolderOpen,
+  RefreshCw,
+  AlertTriangle
 } from 'lucide-react';
 import { format, isPast, isWithinInterval, addDays, differenceInDays } from 'date-fns';
 import { es } from 'date-fns/locale';
@@ -22,6 +25,11 @@ import { toast, Toaster } from 'sonner';
 
 import { Order, KPIStats } from './types';
 import { parseExcelFile, exportToExcel, exportTemplateExcel } from './lib/excel-utils';
+import { 
+  saveMonitoredDirectoryHandle, 
+  getMonitoredDirectoryHandle, 
+  clearMonitoredDirectoryHandle 
+} from './lib/directory-store';
 import EfficiencyDashboard from '@/components/EfficiencyDashboard';
 
 import { 
@@ -93,16 +101,196 @@ export default function App() {
   const [showSplash, setShowSplash] = useState(true);
   const [lastImported, setLastImported] = useState<string | null>(() => localStorage.getItem('calico_last_imported'));
 
-  // Apply dark mode on mount
+  // Monitoreo de carpeta local en PC
+  const [monitoredDirectory, setMonitoredDirectory] = useState<any | null>(null);
+  const [isFolderSyncing, setIsFolderSyncing] = useState(false);
+  const [lastSyncTime, setLastSyncTime] = useState<string | null>(() => localStorage.getItem('calico_last_sync_time'));
+  const [lastSyncFileName, setLastSyncFileName] = useState<string | null>(() => localStorage.getItem('calico_last_sync_filename'));
+
+  // Aplicar tema oscuro
   useEffect(() => {
     document.documentElement.classList.add('dark');
     
-    // Auto-hide splash after 3 seconds
+    // Auto-ocultar splash a los 3s
     const timer = setTimeout(() => {
       setShowSplash(false);
     }, 3000);
     return () => clearTimeout(timer);
   }, []);
+
+  const sincronizarCarpetaInterno = async (directoryHandle: any, isAutomatic = false) => {
+    if (isFolderSyncing) return;
+    try {
+      setIsFolderSyncing(true);
+      
+      // Consultar y requerir permiso
+      const options = { mode: 'read' as const };
+      const hasPermission = await directoryHandle.queryPermission(options);
+      if (hasPermission !== 'granted') {
+        const newPermission = await directoryHandle.requestPermission(options);
+        if (newPermission !== 'granted') {
+          if (!isAutomatic) {
+            toast.error('Permiso Denegado', {
+              description: 'No se otorgaron permisos de lectura para la carpeta seleccionada.',
+            });
+          }
+          setIsFolderSyncing(false);
+          return;
+        }
+      }
+
+      let newestFile: { file: File; name: string; lastModified: number } | null = null;
+
+      // Escanear el directorio
+      for await (const entry of directoryHandle.values()) {
+        if (entry.kind === 'file' && (entry.name.endsWith('.xlsx') || entry.name.endsWith('.xls'))) {
+          try {
+            const fileHandle = entry as any;
+            const file = await fileHandle.getFile();
+            if (!newestFile || file.lastModified > newestFile.lastModified) {
+              newestFile = { file, name: entry.name, lastModified: file.lastModified };
+            }
+          } catch (fileErr) {
+            console.error("Error leyendo archivo individual:", fileErr);
+          }
+        }
+      }
+
+      if (newestFile) {
+        // Evitar procesar el mismo archivo si no ha cambiado y es una sincronización automática
+        const storedLastModified = localStorage.getItem(`calico_file_mtime_${newestFile.name}`);
+        const mtimeStr = newestFile.lastModified.toString();
+        
+        if (isAutomatic && storedLastModified === mtimeStr) {
+          setIsFolderSyncing(false);
+          return;
+        }
+
+        if (!isAutomatic) {
+          toast.info('Archivo Detectado', {
+            description: `Procesando "${newestFile.name}" (el más reciente de la carpeta)...`,
+          });
+        }
+
+        const newOrders = await parseExcelFile(newestFile.file);
+        setOrders(newOrders);
+        
+        // Persistir en localStorage
+        localStorage.setItem('calico_orders', JSON.stringify(newOrders));
+        
+        const syncTimeStr = format(new Date(), "dd/MM/yyyy HH:mm:ss");
+        localStorage.setItem('calico_last_imported', `Carpeta Local: ${syncTimeStr}`);
+        localStorage.setItem('calico_last_sync_time', syncTimeStr);
+        localStorage.setItem('calico_last_sync_filename', newestFile.name);
+        localStorage.setItem(`calico_file_mtime_${newestFile.name}`, mtimeStr);
+        
+        setLastImported(`Carpeta Local: ${syncTimeStr}`);
+        setLastSyncTime(syncTimeStr);
+        setLastSyncFileName(newestFile.name);
+
+        toast.success(isAutomatic ? 'Sincronización Automática Exitosa' : 'Carpeta Sincronizada', {
+          description: `Se detectó y cargó "${newestFile.name}" con ${newOrders.length} pedidos.`,
+        });
+      } else {
+        if (!isAutomatic) {
+          toast.warning('Sin archivos Excel', {
+            description: 'No se encontraron archivos Excel (.xlsx, .xls) válidos en la carpeta vinculada.',
+          });
+        }
+      }
+    } catch (error: any) {
+      console.error("Error sincronizando carpeta:", error);
+      if (!isAutomatic) {
+        toast.error('Error de Sincronización', {
+          description: error.message || 'Ocurrió un error al leer la carpeta local.',
+        });
+      }
+    } finally {
+      setIsFolderSyncing(false);
+    }
+  };
+
+  const vincularCarpetaLocal = async () => {
+    try {
+      if (typeof (window as any).showDirectoryPicker === 'undefined') {
+        toast.error('API No Soportada', {
+          description: 'Su navegador no soporta el acceso directo a carpetas locales. Utilice un navegador basado en Chromium como Chrome o Edge.',
+        });
+        return;
+      }
+      
+      const handle = await (window as any).showDirectoryPicker();
+      setMonitoredDirectory(handle);
+      await saveMonitoredDirectoryHandle(handle);
+      
+      toast.success('Carpeta Vinculada', {
+        description: `Monitoreando la carpeta "${handle.name}" correctamente.`,
+      });
+      
+      await sincronizarCarpetaInterno(handle, false);
+    } catch (err: any) {
+      console.error("Error al vincular carpeta:", err);
+      if (err.name === 'AbortError') {
+        return; // El usuario canceló la acción en el diálogo nativo
+      }
+      toast.error('Acceso Bloqueado por Seguridad', {
+        description: 'La previsualización interactiva está dentro de un iframe protegido. Para habilitar el monitoreo local de carpetas, sugerimos abrir la aplicación en una NUEVA PESTAÑA utilizando el botón de la barra superior derecha de la pantalla.',
+        duration: 8000,
+      });
+    }
+  };
+
+  const desvincularCarpetaLocal = async () => {
+    try {
+      await clearMonitoredDirectoryHandle();
+      setMonitoredDirectory(null);
+      setLastSyncTime(null);
+      setLastSyncFileName(null);
+      toast.success('Monitoreo Desactivado', {
+        description: 'Se ha removido el enlace a la carpeta local de su PC.',
+      });
+    } catch (error) {
+      console.error("Error al desvincular:", error);
+      toast.error('No se pudo desvincular la carpeta.');
+    }
+  };
+
+  // Cargar carpeta vinculada en IndexedDB al montar
+  useEffect(() => {
+    const initDirectory = async () => {
+      try {
+        const handle = await getMonitoredDirectoryHandle();
+        if (handle) {
+          setMonitoredDirectory(handle);
+          sincronizarCarpetaInterno(handle, true).catch(e => console.log("Silent sync skipped:", e));
+        }
+      } catch (err) {
+        console.error("Error cargando carpeta en IndexedDB:", err);
+      }
+    };
+    initDirectory();
+  }, []);
+
+  // Escuchar el evento focused de la ventana y sincronizar
+  useEffect(() => {
+    if (!monitoredDirectory) return;
+
+    const handleFocus = () => {
+      sincronizarCarpetaInterno(monitoredDirectory, true).catch(e => console.log("Focus sync skipped:", e));
+    };
+
+    window.addEventListener('focus', handleFocus);
+    
+    // Interval de respaldo cada 20 segundos
+    const interval = setInterval(() => {
+      sincronizarCarpetaInterno(monitoredDirectory, true).catch(e => console.log("Interval sync skipped:", e));
+    }, 20000);
+
+    return () => {
+      window.removeEventListener('focus', handleFocus);
+      clearInterval(interval);
+    };
+  }, [monitoredDirectory]);
 
   const kpis = useMemo((): KPIStats => {
     const now = new Date();
@@ -511,6 +699,72 @@ export default function App() {
                 />
               </div>
 
+              {/* Opción de Carpeta de Monitoreo Local en PC */}
+              <div className="p-4 bg-[#161b22] border border-[#30363d] rounded-xl text-left space-y-3 shadow-lg">
+                <div className="flex items-start gap-3">
+                  <div className={cn(
+                    "w-9 h-9 rounded-lg flex items-center justify-center border shrink-0 mt-0.5",
+                    monitoredDirectory 
+                      ? "bg-[#3fb950]/10 border-[#3fb950]/30 text-[#3fb950]" 
+                      : "bg-[#21262d] border-[#30363d] text-[#8b949e]"
+                  )}>
+                    <FolderOpen className="w-4 h-4" />
+                  </div>
+                  <div className="space-y-0.5">
+                    <h4 className="text-xs font-bold text-[#e6edf3] uppercase tracking-wider flex items-center gap-1.5 font-sans">
+                      Monitorear Carpeta de tu PC
+                      {monitoredDirectory && (
+                        <span className="inline-flex w-1.5 h-1.5 rounded-full bg-[#3fb950] animate-pulse" />
+                      )}
+                    </h4>
+                    <p className="text-[11px] text-[#8b949e] leading-relaxed">
+                      {monitoredDirectory ? (
+                        <span>
+                          Monitoreando: <span className="font-semibold text-[#c9d1d9] font-mono">"{monitoredDirectory.name}"</span>. 
+                          La app se actualizará sola cuando dejes un Excel en esta carpeta y vuelvas a esta pestaña.
+                        </span>
+                      ) : (
+                        "Permite que el sistema busque permanentemente el Excel de SLA más reciente dentro de una carpeta local de tu PC para que no tengas que subirlo manualmente."
+                      )}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex flex-col sm:flex-row items-center justify-end gap-2 border-t border-[#30363d]/50 pt-3">
+                  {monitoredDirectory ? (
+                    <>
+                      <Button
+                        type="button"
+                        onClick={() => sincronizarCarpetaInterno(monitoredDirectory, false)}
+                        disabled={isFolderSyncing}
+                        variant="outline"
+                        className="bg-[#21262d] hover:bg-[#30363d] text-[#e6edf3] border-[#30363d] text-xs h-8 px-3.5 w-full sm:w-auto flex items-center justify-center gap-1.5 font-medium"
+                      >
+                        <RefreshCw className={cn("w-3 h-3 text-[#3fb950]", isFolderSyncing && "animate-spin")} />
+                        Buscar e Importar Ahora
+                      </Button>
+                      <Button
+                        type="button"
+                        onClick={desvincularCarpetaLocal}
+                        variant="ghost"
+                        className="hover:bg-rose-500/10 text-rose-400 hover:text-rose-300 text-xs h-8 px-3 w-full sm:w-auto"
+                      >
+                        Desvincular Carpeta
+                      </Button>
+                    </>
+                  ) : (
+                    <Button
+                      type="button"
+                      onClick={vincularCarpetaLocal}
+                      className="bg-[#1f6feb] hover:bg-[#388bfd] text-white border-none text-xs h-8 px-4 w-full sm:w-auto flex items-center justify-center gap-1.5 font-medium transition-all active:scale-95 shadow-md"
+                    >
+                      <FolderOpen className="w-3.5 h-3.5" />
+                      Vincular Carpeta de la PC
+                    </Button>
+                  )}
+                </div>
+              </div>
+
               {/* Download Template Action */}
               <div className="flex flex-col sm:flex-row items-center justify-between p-4 bg-[#0d1117]/80 rounded-xl border border-[#30363d]/60 gap-4 text-left">
                 <div className="space-y-0.5">
@@ -541,6 +795,80 @@ export default function App() {
           </motion.div>
         ) : (
           <>
+            {/* Widget de Carpetas de Monitoreo Local */}
+            <div className="bg-[#161b22] border border-[#30363d] rounded-xl p-4 flex flex-col md:flex-row md:items-center justify-between gap-4 shadow-md max-w-7xl mx-auto mb-6 animate-smooth">
+              <div className="flex items-start gap-3">
+                <div className={cn(
+                  "w-10 h-10 rounded-lg flex items-center justify-center border shrink-0",
+                  monitoredDirectory 
+                    ? "bg-[#3fb950]/10 border-[#3fb950]/30 text-[#3fb950]" 
+                    : "bg-[#21262d] border-[#30363d] text-zinc-400"
+                )}>
+                  <FolderOpen className="w-5 h-5" />
+                </div>
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2 flex-wrap text-left">
+                    <h4 className="text-xs font-bold text-[#e6edf3] uppercase tracking-wider font-sans">
+                      Monitoreo de Carpeta Local en PC
+                    </h4>
+                    {monitoredDirectory ? (
+                      <Badge className="bg-[#238636]/20 text-[#3fb950] border-[#238636]/30 text-[10px] py-0 px-2 flex items-center gap-1 font-sans">
+                        <span className="w-1.5 h-1.5 rounded-full bg-[#3fb950] animate-pulse" />
+                        Monitoreo Activo (Focus/Frecuente)
+                      </Badge>
+                    ) : (
+                      <Badge variant="outline" className="text-zinc-400 border-[#30363d] text-[10px] py-0 px-2 font-sans">
+                        Inactivo
+                      </Badge>
+                    )}
+                  </div>
+                  <p className="text-xs text-[#8b949e] text-left leading-relaxed">
+                    {monitoredDirectory ? (
+                      <span>
+                        Carpeta vinculada: <span className="font-semibold text-emerald-400 font-mono">"{monitoredDirectory.name}"</span>
+                        {lastSyncFileName && (
+                          <span> · Última modificación leída: <span className="text-[#3fb950] font-mono font-semibold text-[11px]">{lastSyncFileName}</span> ({lastSyncTime})</span>
+                        )}
+                      </span>
+                    ) : (
+                      "Vincule una carpeta local de su PC. Al descargar o guardar el Excel de SLA allí, la app se actualizará automáticamente al regresar."
+                    )}
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2 self-start md:self-center">
+                {monitoredDirectory ? (
+                  <>
+                    <Button
+                      onClick={() => sincronizarCarpetaInterno(monitoredDirectory, false)}
+                      disabled={isFolderSyncing}
+                      variant="outline"
+                      className="bg-[#21262d] hover:bg-[#30363d] text-[#e6edf3] border-[#30363d] text-xs h-8 px-3 flex items-center gap-1.5 font-medium"
+                    >
+                      <RefreshCw className={cn("w-3.5 h-3.5 text-[#3fb950]", isFolderSyncing && "animate-spin")} />
+                      Sincronizar ahora
+                    </Button>
+                    <Button
+                      onClick={desvincularCarpetaLocal}
+                      variant="ghost"
+                      className="hover:bg-rose-500/10 text-rose-400 hover:text-rose-300 text-xs h-8 px-2.5 flex items-center gap-1"
+                    >
+                      Desvincular
+                    </Button>
+                  </>
+                ) : (
+                  <Button
+                    onClick={vincularCarpetaLocal}
+                    className="bg-[#1f6feb] hover:bg-[#388bfd] text-white border-none text-xs h-8 px-4 flex items-center gap-1.5 font-medium shadow-md transition-all active:scale-95"
+                  >
+                    <FolderOpen className="w-3.5 h-3.5" />
+                    Vincular Carpeta en PC
+                  </Button>
+                )}
+              </div>
+            </div>
+
             {/* Metrics Grid */}
             <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
               <KPICard 
