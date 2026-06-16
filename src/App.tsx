@@ -21,7 +21,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { toast, Toaster } from 'sonner';
 
 import { Order, KPIStats } from './types';
-import { parseExcelFile, exportToExcel } from './lib/excel-utils';
+import { parseExcelFile, exportToExcel, exportTemplateExcel } from './lib/excel-utils';
 import EfficiencyDashboard from '@/components/EfficiencyDashboard';
 
 import { 
@@ -356,11 +356,13 @@ export default function App() {
             />
           <DialogContent className="bg-[#161b22] border-[#30363d] text-[#e6edf3] max-w-lg">
             <DialogHeader>
-              <DialogTitle>Importar Datos de Pedidos</DialogTitle>
-              <DialogDescription className="text-[#8b949e]">
-                El archivo Excel debe tener las siguientes columnas:
+              <DialogTitle className="text-lg font-bold text-[#e6edf3]">Actualizar Datos / Importar Excel</DialogTitle>
+              <DialogDescription className="text-[#8b949e] text-xs">
+                Para actualizar el sistema, carga un archivo que contenga las columnas requeridas. El procesador inteligente solo analizará estas columnas clave, ignorando cualquier columna adicional.
               </DialogDescription>
-              <div className="grid grid-cols-2 gap-x-4 mt-2 text-[11px] font-mono bg-[#0b0e14] p-3 rounded-lg border border-[#30363d]">
+              
+              {/* Columns instruction */}
+              <div className="grid grid-cols-2 gap-x-4 mt-3 text-[11px] font-mono bg-[#0b0e14]/60 p-3 rounded-lg border border-[#30363d]/60 text-[#c9d1d9]">
                 <span>A: Estado TMS</span>
                 <span>B: Fecha Creación</span>
                 <span>C: Cliente</span>
@@ -371,24 +373,46 @@ export default function App() {
                 <span>H: Kilos</span>
                 <span>I: Fecha Vencimiento</span>
                 <span>J: Turno</span>
+                <span className="col-span-2 text-amber-500/90 mt-1">K: Fecha Real Entrega (Opcional)</span>
               </div>
             </DialogHeader>
-            <div className="flex flex-col items-center justify-center p-8 border-2 border-dashed border-[#30363d] rounded-xl bg-[#0b0e14]/50 hover:border-[#8b949e] transition-colors cursor-pointer group relative">
-              <FileUp className="w-12 h-12 text-[#30363d] mb-4 group-hover:text-[#8b949e] transition-colors" />
-              <p className="text-sm text-[#8b949e]">Arrastre su archivo Excel aquí</p>
+
+            {/* Download Template Action Box */}
+            <div className="flex items-center justify-between bg-[#1f242c] p-3 rounded-xl border border-[#30363d] gap-3">
+              <div className="space-y-0.5">
+                <p className="text-xs font-semibold text-[#e6edf3]">¿No tienes la plantilla estructurada?</p>
+                <p className="text-[11px] text-[#8b949e]">Descárgala en tu carpeta y edítala.</p>
+              </div>
+              <Button
+                type="button"
+                onClick={exportTemplateExcel}
+                variant="outline"
+                className="bg-[#21262d] hover:bg-[#30363d] text-[#e6edf3] border-[#30363d] text-xs px-3 py-1.5 h-8 gap-1.5 flex items-center font-medium"
+                id="btn-download-dialog-template"
+              >
+                <FileDown className="w-3.5 h-3.5 text-[#30a14e]" />
+                Descargar Plantilla
+              </Button>
+            </div>
+
+            <div className="flex flex-col items-center justify-center p-8 border-2 border-dashed border-[#30363d] rounded-xl bg-[#0b0e14]/50 hover:border-[#3fb950]/50 transition-colors cursor-pointer group relative">
+              <FileUp className="w-12 h-12 text-[#30363d] mb-4 group-hover:text-[#3fb950] transition-colors" />
+              <p className="text-sm text-[#e6edf3] font-medium">Arrastre o seleccione el archivo Excel</p>
+              <p className="text-xs text-[#8b949e] mt-1">Los datos se sobrescribirán de forma segura</p>
               <input 
                 type="file" 
                 accept=".xlsx, .xls"
                 onChange={handleFileUpload}
                 className="absolute inset-0 opacity-0 cursor-pointer"
+                id="file-upload-input-dialog"
               />
             </div>
             {isImporting && (
               <div className="flex items-center justify-center gap-2 text-sm text-[#8b949e]">
                 <motion.div animate={{ rotate: 360 }} transition={{ repeat: Infinity, duration: 1, ease: "linear" }}>
-                  <Clock className="w-4 h-4" />
+                  <Clock className="w-4 h-4 text-[#3fb950]" />
                 </motion.div>
-                Procesando datos...
+                Procesando datos e integrando registros...
               </div>
             )}
           </DialogContent>
@@ -473,7 +497,7 @@ export default function App() {
             </div>
 
             {/* Selector box */}
-            <div className="max-w-xl mx-auto">
+            <div className="max-w-xl mx-auto space-y-4">
               <div className="flex flex-col items-center justify-center p-10 border-2 border-dashed border-[#30363d] rounded-xl bg-[#0b0e14]/50 hover:border-[#3fb950]/50 transition-colors cursor-pointer group relative animate-smooth">
                 <FileUp className="w-12 h-12 text-[#30363d] mb-4 group-hover:text-[#3fb950] transition-colors" />
                 <p className="text-sm font-medium text-[#e6edf3]">Seleccionar o arrastrar archivo Excel</p>
@@ -483,7 +507,26 @@ export default function App() {
                   accept=".xlsx, .xls"
                   onChange={handleFileUpload}
                   className="absolute inset-0 opacity-0 cursor-pointer"
+                  id="file-upload-input-empty"
                 />
+              </div>
+
+              {/* Download Template Action */}
+              <div className="flex flex-col sm:flex-row items-center justify-between p-4 bg-[#0d1117]/80 rounded-xl border border-[#30363d]/60 gap-4 text-left">
+                <div className="space-y-0.5">
+                  <h4 className="text-xs font-semibold text-[#e6edf3]">¿Necesitas la plantilla oficial de columnas?</h4>
+                  <p className="text-[11px] text-[#8b949e]">Contiene únicamente las columnas requeridas; el sistema buscará justo estos campos al procesar.</p>
+                </div>
+                <Button
+                  type="button"
+                  onClick={exportTemplateExcel}
+                  variant="outline"
+                  className="bg-[#21262d] hover:bg-[#30363d] text-[#c9d1d9] border-[#30363d] text-xs h-9 px-4 shrink-0 flex items-center gap-2 rounded-md"
+                  id="btn-download-empty-template"
+                >
+                  <FileDown className="w-3.5 h-3.5 text-[#30a14e]" />
+                  Descargar Plantilla
+                </Button>
               </div>
 
               {isImporting && (

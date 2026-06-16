@@ -190,3 +190,74 @@ export const exportToExcel = (orders: Order[], fileName: string) => {
   XLSX.utils.book_append_sheet(workbook, worksheet, 'Pendientes');
   XLSX.writeFile(workbook, `${fileName}.xlsx`);
 };
+
+export const exportTemplateExcel = () => {
+  // Column titles corresponding exactly to columns A to K
+  const headers = [
+    'Estado TMS',
+    'Fecha Creación',
+    'Cliente',
+    'ID Pedido',
+    'Destinatario',
+    'Localidad',
+    'Bultos',
+    'Kilos',
+    'Fecha Vencimiento',
+    'Turno',
+    'Fecha Real de Entrega (Opcional)'
+  ];
+
+  const sampleRows = [
+    [
+      'En Proceso',
+      '15/06/2026',
+      'COMPAÑIA INDUSTRIAL S.A.',
+      '70014022',
+      'ALMACEN CENTRAL',
+      'CABA',
+      12,
+      180,
+      '20/06/2026',
+      'Mañana',
+      ''
+    ],
+    [
+      'Entregado',
+      '14/06/2026',
+      'LABORATORIO ARGENTINO',
+      '70014023',
+      'SANTIAGO GOMEZ',
+      'CORDOBA',
+      5,
+      45,
+      '18/06/2026',
+      'Tarde',
+      '17/06/2026'
+    ]
+  ];
+
+  const data = [headers, ...sampleRows];
+
+  // Create worksheet from arrays
+  const worksheet = XLSX.utils.aoa_to_sheet(data);
+
+  // Set column widths so headers are perfectly visible
+  worksheet['!cols'] = [
+    { wch: 18 }, // Estado TMS
+    { wch: 16 }, // Fecha Creación
+    { wch: 28 }, // Cliente
+    { wch: 15 }, // ID Pedido
+    { wch: 24 }, // Destinatario
+    { wch: 18 }, // Localidad
+    { wch: 10 }, // Bultos
+    { wch: 10 }, // Kilos
+    { wch: 18 }, // Fecha Vencimiento
+    { wch: 12 }, // Turno
+    { wch: 32 }  // Fecha Real de Entrega
+  ];
+
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, worksheet, 'Plantilla Calico');
+  XLSX.writeFile(workbook, 'Plantilla_Calico_SLA.xlsx');
+};
+
