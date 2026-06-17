@@ -2,7 +2,13 @@ import * as XLSX from 'xlsx';
 import { Order, OrderStatus } from '../types';
 import { parse, isValid, format } from 'date-fns';
 
-export const parseExcelFile = (file: File): Promise<Order[]> => {
+export interface ParseResult {
+  orders: Order[];
+  detectedRequired: { label: string; index: number; originalName: string }[];
+  deletedExtra: string[];
+}
+
+export const parseExcelFile = (file: File): Promise<ParseResult> => {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = (e) => {
@@ -14,7 +20,7 @@ export const parseExcelFile = (file: File): Promise<Order[]> => {
         // Convert worksheet to an array of arrays so we can easily scan rows and search for headers
         const rows = XLSX.utils.sheet_to_json(worksheet, { header: 1 }) as any[][];
         if (rows.length === 0) {
-          resolve([]);
+          resolve({ orders: [], detectedRequired: [], deletedExtra: [] });
           return;
         }
 
@@ -48,7 +54,8 @@ export const parseExcelFile = (file: File): Promise<Order[]> => {
         });
 
         // Clean and prepare the list of headers for fuzzy synonym lookups
-        const headers = (rows[headerRowIndex] || []).map(h => 
+        const rawHeaders = rows[headerRowIndex] || [];
+        const headers = rawHeaders.map(h => 
           h ? String(h).toLowerCase().trim().normalize("NFD").replace(/[\u0300-\u036f]/g, "") : ""
         );
 
@@ -89,6 +96,57 @@ export const parseExcelFile = (file: File): Promise<Order[]> => {
         const idxDeadline = findColumnIndex(['fecha vencimiento', 'vencimiento', 'fecha limite', 'deadline', 'vence', 'fecha_vencimiento', 'vto'], 8);
         const idxShift = findColumnIndex(['turno', 'shift', 'franja', 'franja horaria', 'turnos'], 9);
         const idxActual = findColumnIndex(['fecha real de entrega', 'fecha real entrega', 'real de entrega', 'fecha real', 'fecha de entrega real', 'fecha_real_entrega', 'entregado el', 'actual delivery', 'fecha entrega real'], 10);
+
+        // Identify matched columns set for exclusion logic
+        const matchedIndicesSet = new Set([
+          idxStatus,
+          idxCreated,
+          idxCustomer,
+          idxId,
+          idxRecipient,
+          idxLocation,
+          idxPackages,
+          idxWeight,
+          idxDeadline,
+          idxShift,
+          idxActual
+        ]);
+
+        const deletedExtra: string[] = [];
+        const detectedRequired: { label: string; index: number; originalName: string }[] = [];
+
+        const columnLabels = [
+          { key: 'Estado TMS', index: idxStatus },
+          { key: 'Fecha Creación', index: idxCreated },
+          { key: 'Cliente', index: idxCustomer },
+          { key: 'ID Pedido', index: idxId },
+          { key: 'Destinatario', index: idxRecipient },
+          { key: 'Localidad', index: idxLocation },
+          { key: 'Bultos', index: idxPackages },
+          { key: 'Kilos', index: idxWeight },
+          { key: 'Fecha Vencimiento', index: idxDeadline },
+          { key: 'Turno', index: idxShift },
+          { key: 'Fecha Real Entrega', index: idxActual }
+        ];
+
+        columnLabels.forEach(col => {
+          if (col.index >= 0 && col.index < rawHeaders.length) {
+            detectedRequired.push({
+              label: col.key,
+              index: col.index,
+              originalName: String(rawHeaders[col.index] || `Columna ${col.index + 1}`)
+            });
+          }
+        });
+
+        for (let i = 0; i < rawHeaders.length; i++) {
+          if (!matchedIndicesSet.has(i)) {
+            const label = rawHeaders[i] ? String(rawHeaders[i]).trim() : '';
+            if (label && !deletedExtra.includes(label)) {
+              deletedExtra.push(label);
+            }
+          }
+        }
 
         // Slice data rows below the header
         const dataRows = rows.slice(headerRowIndex + 1);
@@ -242,7 +300,7 @@ export const parseExcelFile = (file: File): Promise<Order[]> => {
             };
           });
 
-        resolve(orders);
+        resolve({ orders, detectedRequired, deletedExtra });
       } catch (error) {
         reject(error);
       }

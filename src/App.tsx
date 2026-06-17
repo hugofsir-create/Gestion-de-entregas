@@ -100,6 +100,19 @@ export default function App() {
   const [isImporting, setIsImporting] = useState(false);
   const [showSplash, setShowSplash] = useState(true);
   const [lastImported, setLastImported] = useState<string | null>(() => localStorage.getItem('calico_last_imported'));
+  const [lastImportReport, setLastImportReport] = useState<{
+    totalRawColumns: number;
+    keptCount: number;
+    deletedCount: number;
+    deletedList: string[];
+  } | null>(() => {
+    try {
+      const stored = localStorage.getItem('calico_last_import_report');
+      return stored ? JSON.parse(stored) : null;
+    } catch {
+      return null;
+    }
+  });
 
   // Monitoreo de carpeta local en PC
   const [monitoredDirectory, setMonitoredDirectory] = useState<any | null>(null);
@@ -172,11 +185,20 @@ export default function App() {
           });
         }
 
-        const newOrders = await parseExcelFile(newestFile.file);
+        const { orders: newOrders, detectedRequired, deletedExtra } = await parseExcelFile(newestFile.file);
         setOrders(newOrders);
         
         // Persistir en localStorage
         localStorage.setItem('calico_orders', JSON.stringify(newOrders));
+        
+        const report = {
+          totalRawColumns: detectedRequired.length + deletedExtra.length,
+          keptCount: detectedRequired.length,
+          deletedCount: deletedExtra.length,
+          deletedList: deletedExtra
+        };
+        localStorage.setItem('calico_last_import_report', JSON.stringify(report));
+        setLastImportReport(report);
         
         const syncTimeStr = format(new Date(), "dd/MM/yyyy HH:mm:ss");
         localStorage.setItem('calico_last_imported', `Carpeta Local: ${syncTimeStr}`);
@@ -189,7 +211,8 @@ export default function App() {
         setLastSyncFileName(newestFile.name);
 
         toast.success(isAutomatic ? 'Sincronización Automática Exitosa' : 'Carpeta Sincronizada', {
-          description: `Se detectó y cargó "${newestFile.name}" con ${newOrders.length} pedidos.`,
+          description: `Se cargó "${newestFile.name}" con ${newOrders.length} pedidos. Se eliminaron ${deletedExtra.length} columnas irrelevantes automáticamente.`,
+          duration: 5000,
         });
       } else {
         if (!isAutomatic) {
@@ -391,7 +414,7 @@ export default function App() {
 
     try {
       setIsImporting(true);
-      const newOrders = await parseExcelFile(file);
+      const { orders: newOrders, detectedRequired, deletedExtra } = await parseExcelFile(file);
       setOrders(newOrders);
       
       // Persist orders in localStorage
@@ -400,8 +423,18 @@ export default function App() {
       localStorage.setItem('calico_last_imported', importTimeStr);
       setLastImported(importTimeStr);
 
-      toast.success('Importación Exitosa', {
-        description: `Se han cargado ${newOrders.length} pedidos correctamente.`,
+      const report = {
+        totalRawColumns: detectedRequired.length + deletedExtra.length,
+        keptCount: detectedRequired.length,
+        deletedCount: deletedExtra.length,
+        deletedList: deletedExtra
+      };
+      localStorage.setItem('calico_last_import_report', JSON.stringify(report));
+      setLastImportReport(report);
+
+      toast.success('Columnas Depuradas e Importación Exitosa', {
+        description: `Se cargaron ${newOrders.length} pedidos. Se eliminaron automáticamente ${deletedExtra.length} columnas irrelevantes, conservando únicamente las 11 requeridas por la aplicación.`,
+        duration: 8000,
       });
       setIsImporting(false);
     } catch (error) {
@@ -698,6 +731,34 @@ export default function App() {
                   id="file-upload-input-empty"
                 />
               </div>
+
+              {lastImportReport && (
+                <div className="bg-[#161b22]/50 border border-[#30363d]/60 rounded-xl p-4 text-left space-y-2.5 animate-smooth">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] font-bold text-[#e6edf3] uppercase tracking-wider font-sans bg-[#3fb950]/10 text-[#3fb950] border border-[#3fb950]/20 px-2.5 py-0.5 rounded-full flex items-center gap-1.5">
+                      <CheckCircle2 className="w-3.5 h-3.5 text-[#3fb950]" /> Depuración Automática Exitosa
+                    </span>
+                    <span className="text-[10px] text-[#8b949e] font-sans">Aislamiento de Columnas</span>
+                  </div>
+                  <p className="text-[12px] text-[#8b949e] leading-relaxed">
+                    Se analizaron <span className="font-semibold text-emerald-400">{lastImportReport.totalRawColumns} columnas</span> en total del archivo. El sistema aisló las <span className="font-semibold text-emerald-400">{lastImportReport.keptCount} columnas indispensables</span> requeridas, y eliminó de manera segura <span className="font-semibold text-rose-400">{lastImportReport.deletedCount} columnas extra o irrelevantes</span> de forma transparente para que usted no tenga que editar el Excel.
+                  </p>
+                  {lastImportReport.deletedList.length > 0 && (
+                    <div className="pt-1.5 border-t border-[#30363d]/40">
+                      <span className="text-[10px] uppercase font-bold text-[#8b949e] tracking-wider block mb-1.5 font-sans">
+                        Columnas descartadas del archivo sin modificar:
+                      </span>
+                      <div className="flex flex-wrap gap-1">
+                        {lastImportReport.deletedList.map((col, idx) => (
+                          <span key={idx} className="text-[10px] bg-rose-500/5 text-rose-400 border border-rose-500/10 rounded px-1.5 py-0.5 font-mono">
+                            {col}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
 
               {/* Opción de Carpeta de Monitoreo Local en PC */}
               <div className="p-4 bg-[#161b22] border border-[#30363d] rounded-xl text-left space-y-3 shadow-lg">
