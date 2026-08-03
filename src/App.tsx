@@ -16,7 +16,12 @@ import {
   ClipboardList,
   FolderOpen,
   RefreshCw,
-  AlertTriangle
+  AlertTriangle,
+  ExternalLink,
+  ChevronDown,
+  Check,
+  X,
+  MapPin
 } from 'lucide-react';
 import { format, isPast, isWithinInterval, addDays, differenceInDays } from 'date-fns';
 import { es } from 'date-fns/locale';
@@ -31,6 +36,7 @@ import {
   clearMonitoredDirectoryHandle 
 } from './lib/directory-store';
 import EfficiencyDashboard from '@/components/EfficiencyDashboard';
+import LeadTimeConfigModal from '@/components/LeadTimeConfigModal';
 
 import { 
   Card, 
@@ -96,7 +102,7 @@ export default function App() {
   const [searchTerm, setSearchTerm] = useState('');
   const [activeFilter, setActiveFilter] = useState<FilterType>('all');
   const [selectedCustomer, setSelectedCustomer] = useState<string>('all');
-  const [selectedTmsStatus, setSelectedTmsStatus] = useState<string>('all');
+  const [selectedTmsStatuses, setSelectedTmsStatuses] = useState<string[]>([]);
   const [isImporting, setIsImporting] = useState(false);
   const [showSplash, setShowSplash] = useState(true);
   const [lastImported, setLastImported] = useState<string | null>(() => localStorage.getItem('calico_last_imported'));
@@ -114,11 +120,142 @@ export default function App() {
     }
   });
 
-  // Monitoreo de carpeta local en PC
+  // Configuración de Lead Time por Zona / Localidad
+  const [zoneLeadTimes, setZoneLeadTimes] = useState<Record<string, number>>(() => {
+    try {
+      const saved = localStorage.getItem('calico_zone_lead_times');
+      if (saved) return JSON.parse(saved);
+    } catch (e) {
+      console.error("Error loading zone lead times:", e);
+    }
+    return {
+      'CABA': 2,
+      'GBA Zona Norte': 3,
+      'GBA Zona Sur': 3,
+      'GBA Zona Oeste': 3,
+      'Córdoba': 4,
+      'Mendoza': 5,
+      'Santa Fe': 4
+    };
+  });
+
+  const [defaultLeadTime, setDefaultLeadTime] = useState<number>(() => {
+    try {
+      const saved = localStorage.getItem('calico_default_lead_time');
+      if (saved) return Number(saved) || 3;
+    } catch (e) {
+      console.error("Error loading default lead time:", e);
+    }
+    return 3;
+  });
+
+  const [showLeadTimeModal, setShowLeadTimeModal] = useState(false);
+
+  // Available locations extracted dynamically from orders
+  const availableLocations = useMemo(() => {
+    const locs = new Set<string>();
+    orders.forEach(o => {
+      if (o.location && o.location !== 'N/A' && o.location.trim() !== '') {
+        locs.add(o.location.trim());
+      }
+    });
+    return Array.from(locs).sort();
+  }, [orders]);
+
+  const calculateSLAForOrder = (order: Order, leadTimes: Record<string, number>, defaultDays: number): Order => {
+    const zone = order.location ? order.location.trim() : '';
+    const leadDays = (zone && zone in leadTimes) ? leadTimes[zone] : defaultDays;
+    const newDeadline = addDays(order.createdAt, leadDays);
+    return {
+      ...order,
+      deliveryDeadline: newDeadline
+    };
+  };
+
+  const handleSaveLeadTimes = (
+    newZoneLeadTimes: Record<string, number>,
+    newDefaultLeadTime: number,
+    recalculateOrders: boolean
+  ) => {
+    setZoneLeadTimes(newZoneLeadTimes);
+    setDefaultLeadTime(newDefaultLeadTime);
+    localStorage.setItem('calico_zone_lead_times', JSON.stringify(newZoneLeadTimes));
+    localStorage.setItem('calico_default_lead_time', String(newDefaultLeadTime));
+
+    if (recalculateOrders && orders.length > 0) {
+      const updatedOrders = orders.map(order => calculateSLAForOrder(order, newZoneLeadTimes, newDefaultLeadTime));
+      setOrders(updatedOrders);
+      localStorage.setItem('calico_orders', JSON.stringify(updatedOrders));
+      toast.success(`Lead Times actualizados. Se recalcularon los vencimientos de ${updatedOrders.length} pedidos.`);
+    } else {
+      toast.success("Configuración de Lead Times guardada correctamente.");
+    }
+  };
   const [monitoredDirectory, setMonitoredDirectory] = useState<any | null>(null);
   const [isFolderSyncing, setIsFolderSyncing] = useState(false);
   const [lastSyncTime, setLastSyncTime] = useState<string | null>(() => localStorage.getItem('calico_last_sync_time'));
   const [lastSyncFileName, setLastSyncFileName] = useState<string | null>(() => localStorage.getItem('calico_last_sync_filename'));
+  const [showIframeModal, setShowIframeModal] = useState(false);
+  const folderInputRef = React.useRef<HTMLInputElement>(null);
+
+  const handleFolderInputSelect = async (e: ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+
+    let newestFile: File | null = null;
+    for (let i = 0; i < files.length; i++) {
+      const f = files[i];
+      if (f.name.endsWith('.xlsx') || f.name.endsWith('.xls')) {
+        if (!newestFile || f.lastModified > newestFile.lastModified) {
+          newestFile = f;
+        }
+      }
+    }
+
+    if (newestFile) {
+      try {
+        setIsImporting(true);
+        const { orders: newOrders, detectedRequired, deletedExtra } = await parseExcelFile(newestFile);
+        setOrders(newOrders);
+
+        const syncTimeStr = format(new Date(), "dd/MM/yyyy HH:mm:ss");
+        localStorage.setItem('calico_orders', JSON.stringify(newOrders));
+        localStorage.setItem('calico_last_imported', `Carpeta Local: ${syncTimeStr}`);
+        localStorage.setItem('calico_last_sync_time', syncTimeStr);
+        localStorage.setItem('calico_last_sync_filename', newestFile.name);
+
+        setLastImported(`Carpeta Local: ${syncTimeStr}`);
+        setLastSyncTime(syncTimeStr);
+        setLastSyncFileName(newestFile.name);
+
+        const report = {
+          totalRawColumns: detectedRequired.length + deletedExtra.length,
+          keptCount: detectedRequired.length,
+          deletedCount: deletedExtra.length,
+          deletedList: deletedExtra
+        };
+        localStorage.setItem('calico_last_import_report', JSON.stringify(report));
+        setLastImportReport(report);
+
+        toast.success('Carpeta Importada Exitosamente', {
+          description: `Se detectó y procesó "${newestFile.name}" con ${newOrders.length} pedidos. Se eliminaron ${deletedExtra.length} columnas no requeridas.`,
+          duration: 6000,
+        });
+      } catch (err: any) {
+        toast.error('Error al procesar el archivo Excel', {
+          description: err.message || 'No se pudo leer el archivo seleccionado.',
+        });
+      } finally {
+        setIsImporting(false);
+        setShowIframeModal(false);
+        if (e.target) e.target.value = '';
+      }
+    } else {
+      toast.warning('Sin Archivo Excel Válido', {
+        description: 'No se encontraron archivos .xlsx o .xls dentro de la carpeta seleccionada.',
+      });
+    }
+  };
 
   // Aplicar tema oscuro
   useEffect(() => {
@@ -234,6 +371,13 @@ export default function App() {
   };
 
   const vincularCarpetaLocal = async () => {
+    // Detectar si la app está corriendo dentro de un iframe
+    const isIframe = window.self !== window.top;
+    if (isIframe) {
+      setShowIframeModal(true);
+      return;
+    }
+
     try {
       if (typeof (window as any).showDirectoryPicker === 'undefined') {
         toast.error('API No Soportada', {
@@ -256,8 +400,12 @@ export default function App() {
       if (err.name === 'AbortError') {
         return; // El usuario canceló la acción en el diálogo nativo
       }
-      toast.error('Acceso Bloqueado por Seguridad', {
-        description: 'La previsualización interactiva está dentro de un iframe protegido. Para habilitar el monitoreo local de carpetas, sugerimos abrir la aplicación en una NUEVA PESTAÑA utilizando el botón de la barra superior derecha de la pantalla.',
+      if (err.name === 'SecurityError' || err.message?.includes('sub frame') || err.message?.includes('Cross origin')) {
+        setShowIframeModal(true);
+        return;
+      }
+      toast.error('Acceso a Carpeta Restringido', {
+        description: err.message || 'No se pudo acceder a la carpeta. Si está en vista integrada, use la opción de Abrir en Nueva Pestaña.',
         duration: 8000,
       });
     }
@@ -399,14 +547,14 @@ export default function App() {
         return false;
       }
 
-      // 4. TMS Status Filter
-      if (selectedTmsStatus !== 'all' && order.tmsStatus !== selectedTmsStatus) {
+      // 4. TMS Status Filter (Multi-select)
+      if (selectedTmsStatuses.length > 0 && !selectedTmsStatuses.includes(order.tmsStatus)) {
         return false;
       }
 
       return true;
     });
-  }, [orders, searchTerm, activeFilter, selectedCustomer, selectedTmsStatus]);
+  }, [orders, searchTerm, activeFilter, selectedCustomer, selectedTmsStatuses]);
 
   const handleFileUpload = async (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -558,10 +706,23 @@ export default function App() {
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
+          <Button 
+            type="button"
+            onClick={() => setShowLeadTimeModal(true)}
+            variant="outline"
+            className="bg-[#21262d] hover:bg-[#30363d] text-[#e6edf3] border-[#30363d] border gap-2 px-3.5 font-medium rounded-md h-9 text-xs cursor-pointer shadow-sm transition-all"
+          >
+            <Clock className="w-4 h-4 text-[#a371f7]" /> 
+            <span>Lead Time Zonas</span>
+            <Badge variant="outline" className="bg-[#a371f7]/15 text-[#a371f7] border-[#a371f7]/30 text-[10px] px-1.5 py-0 font-mono">
+              {Object.keys(zoneLeadTimes).length}
+            </Badge>
+          </Button>
+
           <Button 
             onClick={() => exportToExcel(filteredOrders, `Pendientes_Calico_${format(new Date(), 'dd-MM-yyyy')}`)}
-            className="bg-[#21262d] hover:bg-[#30363d] text-[#c9d1d9] border-[#30363d] border gap-2 px-4 font-medium rounded-md"
+            className="bg-[#21262d] hover:bg-[#30363d] text-[#c9d1d9] border-[#30363d] border gap-2 px-4 font-medium rounded-md h-9 text-xs cursor-pointer"
             disabled={filteredOrders.length === 0}
           >
             <FileDown className="w-4 h-4" /> Exportar
@@ -587,8 +748,8 @@ export default function App() {
                 <span>A: Estado TMS</span>
                 <span>B: Fecha Creación</span>
                 <span>C: Cliente</span>
-                <span>D: ID Pedido</span>
-                <span>E: Destinatario</span>
+                <span className="text-[#3fb950] font-bold">D: Destinatario</span>
+                <span>E: ID Pedido</span>
                 <span>F: Localidad</span>
                 <span>G: Bultos</span>
                 <span>H: Kilos</span>
@@ -684,11 +845,11 @@ export default function App() {
                 </div>
                 <div className="flex items-center gap-2">
                   <span className="text-[#3fb950] font-bold">D:</span>
-                  <span>ID Pedido</span>
+                  <span className="text-[#3fb950] font-semibold">Destinatario</span>
                 </div>
                 <div className="flex items-center gap-2">
                   <span className="text-[#3fb950] font-bold">E:</span>
-                  <span>Destinatario</span>
+                  <span>ID Pedido</span>
                 </div>
                 <div className="flex items-center gap-2">
                   <span className="text-[#3fb950] font-bold">F:</span>
@@ -931,13 +1092,34 @@ export default function App() {
             </div>
 
             {/* Metrics Grid */}
-            <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
               <KPICard 
                 title="Total Pedidos" 
                 value={kpis.total} 
-                isActive={activeFilter === 'all'}
-                onClick={() => setActiveFilter('all')}
+                isActive={activeFilter === 'all' && searchTerm === '' && selectedCustomer === 'all' && selectedTmsStatuses.length === 0}
+                onClick={() => {
+                  setActiveFilter('all');
+                  setSearchTerm('');
+                  setSelectedCustomer('all');
+                  setSelectedTmsStatuses([]);
+                }}
                 color="blue"
+                subtext="Total base cargada"
+              />
+              <KPICard 
+                title="Líneas Filtradas" 
+                value={filteredOrders.length} 
+                isActive={filteredOrders.length !== orders.length || searchTerm !== '' || selectedCustomer !== 'all' || selectedTmsStatuses.length > 0 || activeFilter !== 'all'}
+                onClick={() => {
+                  setActiveTab('table');
+                }}
+                color="purple"
+                subtext={
+                  filteredOrders.length === orders.length 
+                    ? "100% visible sin filtros" 
+                    : `${Math.round((filteredOrders.length / (orders.length || 1)) * 100)}% de los pedidos`
+                }
+                icon={<Filter className="w-4 h-4 text-[#a371f7]" />}
               />
               <KPICard 
                 title="En Tiempo" 
@@ -945,6 +1127,7 @@ export default function App() {
                 isActive={activeFilter === 'onTime'}
                 onClick={() => setActiveFilter('onTime')}
                 color="green"
+                subtext="Entregas sin atraso"
               />
               <KPICard 
                 title="Fuera de Tiempo" 
@@ -952,6 +1135,7 @@ export default function App() {
                 isActive={activeFilter === 'late'}
                 onClick={() => setActiveFilter('late')}
                 color="red"
+                subtext="Entregas demoradas"
               />
               <KPICard 
                 title="Vencimiento < 5 Días" 
@@ -959,6 +1143,7 @@ export default function App() {
                 isActive={activeFilter === 'expiringSoon'}
                 onClick={() => setActiveFilter('expiringSoon')}
                 color="orange"
+                subtext="Alerta SLA cercano"
               />
             </section>
 
@@ -1026,26 +1211,64 @@ export default function App() {
                     </Select>
                   </div>
 
-                  <div className="w-full sm:w-[200px]">
-                    <Select value={selectedTmsStatus} onValueChange={setSelectedTmsStatus}>
-                      <SelectTrigger className="bg-[#161b22] border-[#30363d] text-[#e6edf3] focus:ring-0 focus:border-[#8b949e] h-10">
-                        <div className="flex items-center gap-2 truncate">
-                          <Package className="w-4 h-4 shrink-0 text-[#8b949e]" />
-                          <SelectValue placeholder="Estado TMS" />
-                        </div>
-                      </SelectTrigger>
-                      <SelectContent className="bg-[#161b22] border-[#30363d] text-[#e6edf3]">
-                        <SelectItem value="all">Todos los Estados TMS</SelectItem>
-                        {tmsStatuses.map(status => (
-                          <SelectItem key={status} value={status}>
-                            {status}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
+                  {/* Multi-Select Status Filter */}
+                  <MultiSelectStatusFilter
+                    statuses={tmsStatuses}
+                    selectedStatuses={selectedTmsStatuses}
+                    onChange={setSelectedTmsStatuses}
+                    orders={orders}
+                  />
                 </div>
               </div>
+
+              {/* Active Filters Bar */}
+              {(searchTerm || selectedCustomer !== 'all' || selectedTmsStatuses.length > 0 || activeFilter !== 'all') && (
+                <div className="flex items-center gap-2 flex-wrap text-xs bg-[#161b22]/90 border border-[#30363d] px-3.5 py-2 rounded-xl text-[#8b949e] animate-smooth">
+                  <span className="font-semibold text-[#e6edf3] flex items-center gap-1.5 font-sans text-[11px] uppercase tracking-wider">
+                    <Filter className="w-3.5 h-3.5 text-[#a371f7]" /> Filtros Activos:
+                  </span>
+
+                  {activeFilter !== 'all' && (
+                    <Badge variant="outline" className="bg-[#1f6feb]/15 text-[#58a6ff] border-[#1f6feb]/30 text-[11px] font-normal gap-1 font-sans">
+                      KPI: {activeFilter === 'onTime' ? 'En Tiempo' : activeFilter === 'late' ? 'Fuera de Tiempo' : activeFilter === 'pending' ? 'Pendiente' : 'Vencimiento < 5 Días'}
+                      <button onClick={() => setActiveFilter('all')} className="hover:text-white ml-0.5 cursor-pointer">×</button>
+                    </Badge>
+                  )}
+
+                  {searchTerm && (
+                    <Badge variant="outline" className="bg-[#1f6feb]/15 text-[#58a6ff] border-[#1f6feb]/30 text-[11px] font-normal gap-1 font-sans">
+                      Texto: "{searchTerm}"
+                      <button onClick={() => setSearchTerm('')} className="hover:text-white ml-0.5 cursor-pointer">×</button>
+                    </Badge>
+                  )}
+
+                  {selectedCustomer !== 'all' && (
+                    <Badge variant="outline" className="bg-[#1f6feb]/15 text-[#58a6ff] border-[#1f6feb]/30 text-[11px] font-normal gap-1 font-sans">
+                      Cliente: {selectedCustomer}
+                      <button onClick={() => setSelectedCustomer('all')} className="hover:text-white ml-0.5 cursor-pointer">×</button>
+                    </Badge>
+                  )}
+
+                  {selectedTmsStatuses.length > 0 && (
+                    <Badge variant="outline" className="bg-[#1f6feb]/15 text-[#58a6ff] border-[#1f6feb]/30 text-[11px] font-normal gap-1 font-sans">
+                      Estado TMS ({selectedTmsStatuses.length}): {selectedTmsStatuses.join(', ')}
+                      <button onClick={() => setSelectedTmsStatuses([])} className="hover:text-white ml-0.5 cursor-pointer">×</button>
+                    </Badge>
+                  )}
+
+                  <button
+                    onClick={() => {
+                      setActiveFilter('all');
+                      setSearchTerm('');
+                      setSelectedCustomer('all');
+                      setSelectedTmsStatuses([]);
+                    }}
+                    className="text-[11px] text-rose-400 hover:text-rose-300 hover:underline ml-auto font-medium cursor-pointer"
+                  >
+                    Limpiar todos los filtros
+                  </button>
+                </div>
+              )}
 
               <Card className="bg-[#161b22] border-[#30363d] rounded-xl overflow-hidden shadow-none">
                 <div className="px-6 py-4 border-b border-[#30363d] flex flex-col md:flex-row justify-between items-start md:items-center gap-2 bg-[#161b22]">
@@ -1057,63 +1280,78 @@ export default function App() {
                   </div>
                 </div>
                 <div className="overflow-x-auto w-fit max-w-full border-[#30363d] border rounded-lg">
-                  <Table className="border-collapse table-fixed w-[1200px]">
+                  <Table className="border-collapse table-fixed w-[1330px]">
                     <TableHeader>
                       <TableRow className="border-[#30363d] hover:bg-transparent">
-                        <TableHead className="text-[#8b949e] uppercase text-[10px] h-10 px-2 whitespace-nowrap w-[160px]">ID Pedido</TableHead>
+                        <TableHead className="text-[#8b949e] uppercase text-[10px] h-10 px-2 whitespace-nowrap w-[150px]">ID Pedido</TableHead>
                         <TableHead className="text-[#8b949e] uppercase text-[10px] h-10 px-2 whitespace-nowrap w-[110px]">Estado TMS</TableHead>
-                        <TableHead className="text-[#8b949e] uppercase text-[10px] h-10 px-2 whitespace-nowrap w-[180px]">Cliente</TableHead>
+                        <TableHead className="text-[#8b949e] uppercase text-[10px] h-10 px-2 whitespace-nowrap w-[170px]">Cliente</TableHead>
                         <TableHead className="text-[#8b949e] uppercase text-[10px] h-10 px-2 whitespace-nowrap w-[160px]">Destinatario</TableHead>
-                        <TableHead className="text-[#8b949e] uppercase text-[10px] h-10 px-2 whitespace-nowrap w-[140px]">Localidad</TableHead>
-                        <TableHead className="text-[#8b949e] uppercase text-[10px] h-10 px-2 whitespace-nowrap w-[80px]">Creación</TableHead>
+                        <TableHead className="text-[#8b949e] uppercase text-[10px] h-10 px-2 whitespace-nowrap w-[130px]">Localidad</TableHead>
+                        <TableHead className="text-[#8b949e] uppercase text-[10px] h-10 px-2 whitespace-nowrap w-[85px]">Creación</TableHead>
+                        <TableHead className="text-[#8b949e] uppercase text-[10px] h-10 px-2 text-center whitespace-nowrap w-[120px]" title="Días transcurridos desde la fecha de creación hasta hoy">Días Transcurridos</TableHead>
                         <TableHead className="text-[#8b949e] uppercase text-[10px] h-10 px-2 whitespace-nowrap w-[100px]">Vencimiento</TableHead>
                         <TableHead className="text-[#8b949e] uppercase text-[10px] h-10 px-2 whitespace-nowrap w-[70px]">Turno</TableHead>
                         <TableHead className="text-[#8b949e] uppercase text-[10px] h-10 px-2 whitespace-nowrap w-[80px] text-right">Bultos/Kg</TableHead>
-                        <TableHead className="text-[#8b949e] uppercase text-[10px] h-10 px-2 text-center whitespace-nowrap w-[120px]">Estado</TableHead>
+                        <TableHead className="text-[#8b949e] uppercase text-[10px] h-10 px-2 text-center whitespace-nowrap w-[110px]">Estado</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {filteredOrders.map((order) => (
-                        <TableRow 
-                          key={order.uniqueId}
-                          className="border-[#21262d] hover:bg-[#1c2128] transition-colors"
-                        >
-                          <TableCell className="px-2 py-2 font-mono text-[#58a6ff] text-[12px] whitespace-nowrap">#{order.id}</TableCell>
-                          <TableCell className="px-2 py-2 whitespace-nowrap">
-                            <Badge variant="outline" className="bg-[#161b22] border-[#30363d] text-[#8b949e] text-[9px] whitespace-nowrap">
-                              {order.tmsStatus}
-                            </Badge>
-                          </TableCell>
-                          <TableCell className="px-2 py-2 font-medium text-[#e6edf3] text-[12px] whitespace-nowrap truncate" title={order.customerName}>
-                            {order.customerName}
-                          </TableCell>
-                          <TableCell className="px-2 py-2 text-[#e6edf3] text-[12px] whitespace-nowrap truncate" title={order.recipient}>
-                            {order.recipient}
-                          </TableCell>
-                          <TableCell className="px-2 py-2 text-[#8b949e] text-[12px] whitespace-nowrap truncate" title={order.location}>
-                            {order.location}
-                          </TableCell>
-                          <TableCell className="px-2 py-2 text-[#8b949e] text-[12px] whitespace-nowrap">
-                            {format(order.createdAt, 'dd/MM/yyyy', { locale: es })}
-                          </TableCell>
-                          <TableCell className="px-2 py-2 whitespace-nowrap">
-                            <div className="flex flex-col whitespace-nowrap leading-tight">
-                              <span className="text-[#e6edf3] text-[12px]">{format(order.deliveryDeadline, 'dd/MM/yyyy', { locale: es })}</span>
-                              <span className="text-[10px] text-[#8b949e] font-mono">{getTimeLeft(order.deliveryDeadline)}</span>
-                            </div>
-                          </TableCell>
-                          <TableCell className="px-2 py-2 text-[12px] whitespace-nowrap">{order.shift}</TableCell>
-                          <TableCell className="px-2 py-2 whitespace-nowrap text-right">
-                            <div className="flex flex-col text-[11px] text-[#8b949e] whitespace-nowrap leading-tight">
-                              <span>{order.packages} bultos</span>
-                              <span>{order.weight} kg</span>
-                            </div>
-                          </TableCell>
-                          <TableCell className="px-2 py-2 text-center whitespace-nowrap">
-                            {getStatusTag(order)}
-                          </TableCell>
-                        </TableRow>
-                      ))}
+                      {filteredOrders.map((order) => {
+                        const elapsedDays = Math.max(0, differenceInDays(new Date(), order.createdAt));
+                        return (
+                          <TableRow 
+                            key={order.uniqueId}
+                            className="border-[#21262d] hover:bg-[#1c2128] transition-colors"
+                          >
+                            <TableCell className="px-2 py-2 font-mono text-[#58a6ff] text-[12px] whitespace-nowrap">#{order.id}</TableCell>
+                            <TableCell className="px-2 py-2 whitespace-nowrap">
+                              <Badge variant="outline" className="bg-[#161b22] border-[#30363d] text-[#8b949e] text-[9px] whitespace-nowrap">
+                                {order.tmsStatus}
+                              </Badge>
+                            </TableCell>
+                            <TableCell className="px-2 py-2 font-medium text-[#e6edf3] text-[12px] whitespace-nowrap truncate" title={order.customerName}>
+                              {order.customerName}
+                            </TableCell>
+                            <TableCell className="px-2 py-2 text-[#e6edf3] text-[12px] whitespace-nowrap truncate" title={order.recipient}>
+                              {order.recipient}
+                            </TableCell>
+                            <TableCell className="px-2 py-2 text-[#8b949e] text-[12px] whitespace-nowrap truncate" title={order.location}>
+                              {order.location}
+                            </TableCell>
+                            <TableCell className="px-2 py-2 text-[#8b949e] text-[12px] whitespace-nowrap">
+                              {format(order.createdAt, 'dd/MM/yyyy', { locale: es })}
+                            </TableCell>
+                            <TableCell className="px-2 py-2 text-center whitespace-nowrap">
+                              <Badge variant="outline" className={cn(
+                                "text-[10px] font-mono font-semibold px-2 py-0.5 border",
+                                elapsedDays === 0 && "bg-emerald-500/10 text-emerald-400 border-emerald-500/20",
+                                elapsedDays > 0 && elapsedDays <= 3 && "bg-[#1f6feb]/10 text-[#58a6ff] border-[#1f6feb]/20",
+                                elapsedDays > 3 && elapsedDays <= 6 && "bg-amber-500/10 text-amber-400 border-amber-500/20",
+                                elapsedDays > 6 && "bg-rose-500/10 text-rose-400 border-rose-500/20"
+                              )}>
+                                {elapsedDays} {elapsedDays === 1 ? 'día' : 'días'}
+                              </Badge>
+                            </TableCell>
+                            <TableCell className="px-2 py-2 whitespace-nowrap">
+                              <div className="flex flex-col whitespace-nowrap leading-tight">
+                                <span className="text-[#e6edf3] text-[12px]">{format(order.deliveryDeadline, 'dd/MM/yyyy', { locale: es })}</span>
+                                <span className="text-[10px] text-[#8b949e] font-mono">{getTimeLeft(order.deliveryDeadline)}</span>
+                              </div>
+                            </TableCell>
+                            <TableCell className="px-2 py-2 text-[12px] whitespace-nowrap">{order.shift}</TableCell>
+                            <TableCell className="px-2 py-2 whitespace-nowrap text-right">
+                              <div className="flex flex-col text-[11px] text-[#8b949e] whitespace-nowrap leading-tight">
+                                <span>{order.packages} bultos</span>
+                                <span>{order.weight} kg</span>
+                              </div>
+                            </TableCell>
+                            <TableCell className="px-2 py-2 text-center whitespace-nowrap">
+                              {getStatusTag(order)}
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })}
                     </TableBody>
                   </Table>
                 </div>
@@ -1123,6 +1361,94 @@ export default function App() {
           </>
         )}
       </main>
+
+      {/* Hidden Folder Picker Input for Iframe Fallback */}
+      <input
+        type="file"
+        ref={folderInputRef}
+        onChange={handleFolderInputSelect}
+        className="hidden"
+        {...({ webkitdirectory: "", directory: "", multiple: true } as any)}
+      />
+
+      {/* Modal explicativo para acceso a carpetas en vista integrada (Iframe) */}
+      <Dialog open={showIframeModal} onOpenChange={setShowIframeModal}>
+        <DialogContent className="bg-[#161b22] border-[#30363d] text-[#e6edf3] max-w-lg rounded-2xl p-6 shadow-2xl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-amber-400 text-base font-bold">
+              <AlertTriangle className="w-5 h-5 text-amber-400 shrink-0" />
+              Acceso a Carpeta Local en Vista Integrada
+            </DialogTitle>
+            <DialogDescription className="text-xs text-[#8b949e] pt-1.5 leading-relaxed text-left">
+              Los navegadores web (Chrome / Edge) restringen el uso de la API directa de carpetas en vivo dentro de previsualizaciones o marcos integrados (iframes) por razones de seguridad.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-3.5 pt-2 text-left">
+            <div className="p-4 bg-[#0d1117] border border-[#30363d] rounded-xl space-y-2.5">
+              <div className="flex items-center justify-between">
+                <h5 className="text-xs font-bold text-[#e6edf3] flex items-center gap-1.5">
+                  <ExternalLink className="w-3.5 h-3.5 text-[#58a6ff]" />
+                  Opción 1: Abrir en Nueva Pestaña (Recomendado)
+                </h5>
+                <span className="text-[10px] font-bold text-[#3fb950] bg-[#3fb950]/10 px-2 py-0.5 rounded-full border border-[#3fb950]/20">
+                  Sincronización Continua
+                </span>
+              </div>
+              <p className="text-[11px] text-[#8b949e] leading-relaxed">
+                Abre la aplicación en su propia ventana para habilitar el monitoreo automático en tiempo real de tu carpeta de PC.
+              </p>
+              <Button
+                type="button"
+                onClick={() => {
+                  window.open(window.location.href, '_blank');
+                  setShowIframeModal(false);
+                }}
+                className="bg-[#1f6feb] hover:bg-[#388bfd] text-white text-xs h-9 px-4 w-full flex items-center justify-center gap-2 font-medium"
+              >
+                <ExternalLink className="w-3.5 h-3.5" />
+                Abrir App en Nueva Pestaña
+              </Button>
+            </div>
+
+            <div className="p-4 bg-[#0d1117] border border-[#30363d] rounded-xl space-y-2.5">
+              <div className="flex items-center justify-between">
+                <h5 className="text-xs font-bold text-[#e6edf3] flex items-center gap-1.5">
+                  <FolderOpen className="w-3.5 h-3.5 text-[#3fb950]" />
+                  Opción 2: Cargar Carpeta en la Vista Actual
+                </h5>
+                <span className="text-[10px] text-[#8b949e] bg-[#21262d] px-2 py-0.5 rounded-full border border-[#30363d]">
+                  Sin Salir del Marco
+                </span>
+              </div>
+              <p className="text-[11px] text-[#8b949e] leading-relaxed">
+                Selecciona la carpeta local de tu PC para que el sistema busque e importe inmediatamente el Excel de SLA más reciente.
+              </p>
+              <Button
+                type="button"
+                onClick={() => {
+                  folderInputRef.current?.click();
+                }}
+                variant="outline"
+                className="bg-[#21262d] hover:bg-[#30363d] text-[#e6edf3] border-[#30363d] text-xs h-9 px-4 w-full flex items-center justify-center gap-2 font-medium"
+              >
+                <FolderOpen className="w-3.5 h-3.5 text-[#3fb950]" />
+                Seleccionar Carpeta de la PC
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Modal de Configuración de Lead Time por Zona */}
+      <LeadTimeConfigModal
+        isOpen={showLeadTimeModal}
+        onClose={() => setShowLeadTimeModal(false)}
+        zoneLeadTimes={zoneLeadTimes}
+        defaultLeadTime={defaultLeadTime}
+        availableLocations={availableLocations}
+        onSave={handleSaveLeadTimes}
+      />
     </div>
   );
 }
@@ -1173,15 +1499,18 @@ interface KPICardProps {
   value: number;
   isActive: boolean;
   onClick: () => void;
-  color: 'blue' | 'green' | 'red' | 'orange';
+  color: 'blue' | 'green' | 'red' | 'orange' | 'purple';
+  subtext?: string;
+  icon?: ReactNode;
 }
 
-function KPICard({ title, value, isActive, onClick, color }: KPICardProps) {
+function KPICard({ title, value, isActive, onClick, color, subtext, icon }: KPICardProps) {
   const valueColors = {
     blue: "text-[#58a6ff]",
     green: "text-[#3fb950]",
     red: "text-[#f85149]",
     orange: "text-[#d29922]",
+    purple: "text-[#a371f7]",
   };
 
   return (
@@ -1190,17 +1519,197 @@ function KPICard({ title, value, isActive, onClick, color }: KPICardProps) {
       whileTap={{ scale: 0.98 }}
       onClick={onClick}
       className={cn(
-        "flex flex-col p-5 rounded-xl border transition-all text-left relative overflow-hidden",
+        "flex flex-col p-4 sm:p-5 rounded-xl border transition-all text-left relative overflow-hidden cursor-pointer",
         "bg-[#161b22] border-[#30363d]",
-        isActive && "border-[#3b82f6] bg-[#1f2937]"
+        isActive && "border-[#a371f7] bg-[#1f2937]"
       )}
     >
-      <div className="text-[12px] text-[#8b949e] uppercase tracking-widest mb-2 font-medium">
-        {title}
+      <div className="flex items-center justify-between mb-1.5">
+        <span className="text-[11px] sm:text-[12px] text-[#8b949e] uppercase tracking-wider font-medium font-sans">
+          {title}
+        </span>
+        {icon && <span className="text-[#8b949e]">{icon}</span>}
       </div>
-      <div className={cn("text-3xl font-bold font-sans", valueColors[color])}>
+      <div className={cn("text-2xl sm:text-3xl font-bold font-sans", valueColors[color])}>
         {value}
       </div>
+      {subtext && (
+        <div className="text-[10px] text-[#8b949e] mt-1 font-mono truncate">
+          {subtext}
+        </div>
+      )}
     </motion.button>
+  );
+}
+
+interface MultiSelectStatusFilterProps {
+  statuses: string[];
+  selectedStatuses: string[];
+  onChange: (statuses: string[]) => void;
+  orders: Order[];
+}
+
+function MultiSelectStatusFilter({
+  statuses,
+  selectedStatuses,
+  onChange,
+  orders
+}: MultiSelectStatusFilterProps) {
+  const [isOpen, setIsOpen] = useState(false);
+  const dropdownRef = React.useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setIsOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  const statusCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    orders.forEach(o => {
+      if (o.tmsStatus) {
+        counts[o.tmsStatus] = (counts[o.tmsStatus] || 0) + 1;
+      }
+    });
+    return counts;
+  }, [orders]);
+
+  const toggleStatus = (status: string) => {
+    if (selectedStatuses.length === 0) {
+      onChange([status]);
+    } else if (selectedStatuses.includes(status)) {
+      const next = selectedStatuses.filter(s => s !== status);
+      onChange(next);
+    } else {
+      const next = [...selectedStatuses, status];
+      if (next.length === statuses.length) {
+        onChange([]);
+      } else {
+        onChange(next);
+      }
+    }
+  };
+
+  const isAllSelected = selectedStatuses.length === 0 || selectedStatuses.length === statuses.length;
+
+  return (
+    <div className="relative w-full sm:w-[240px]" ref={dropdownRef}>
+      <button
+        type="button"
+        onClick={() => setIsOpen(!isOpen)}
+        className={cn(
+          "w-full bg-[#161b22] border border-[#30363d] text-[#e6edf3] focus:outline-none focus:border-[#8b949e] h-10 px-3 rounded-md flex items-center justify-between text-xs transition-colors cursor-pointer",
+          selectedStatuses.length > 0 && "border-[#388bfd]/60 bg-[#1f2937]/50"
+        )}
+      >
+        <div className="flex items-center gap-2 truncate">
+          <Package className="w-4 h-4 shrink-0 text-[#8b949e]" />
+          <span className="truncate font-medium">
+            {isAllSelected 
+              ? "Estado TMS: Todos" 
+              : selectedStatuses.length === 1 
+                ? `TMS: ${selectedStatuses[0]}`
+                : `Estado TMS (${selectedStatuses.length} sel.)`}
+          </span>
+        </div>
+        <div className="flex items-center gap-1.5 shrink-0">
+          {selectedStatuses.length > 0 && (
+            <span className="bg-[#1f6feb] text-white text-[10px] font-bold px-1.5 py-0.2 rounded-full">
+              {selectedStatuses.length}
+            </span>
+          )}
+          <ChevronDown className={cn("w-3.5 h-3.5 text-[#8b949e] transition-transform", isOpen && "rotate-180")} />
+        </div>
+      </button>
+
+      {isOpen && (
+        <div className="absolute left-0 top-full mt-1.5 w-full min-w-[260px] bg-[#161b22] border border-[#30363d] rounded-xl shadow-2xl z-50 overflow-hidden animate-smooth">
+          <div className="p-2.5 border-b border-[#30363d] flex items-center justify-between bg-[#0d1117]/80">
+            <span className="text-[11px] font-bold text-[#8b949e] uppercase tracking-wider font-sans">
+              Estados TMS (Múltiple)
+            </span>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => onChange([])}
+                className="text-[11px] text-[#58a6ff] hover:underline font-medium cursor-pointer"
+              >
+                {isAllSelected ? "Ver Todos" : "Seleccionar Todos"}
+              </button>
+              {selectedStatuses.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => onChange([])}
+                  className="text-[11px] text-rose-400 hover:underline font-medium cursor-pointer"
+                >
+                  Limpiar
+                </button>
+              )}
+            </div>
+          </div>
+
+          <div className="max-h-60 overflow-y-auto p-1.5 space-y-0.5 custom-scrollbar">
+            <div
+              onClick={() => onChange([])}
+              className={cn(
+                "flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs cursor-pointer transition-colors",
+                isAllSelected ? "bg-[#1f2937] text-white font-semibold" : "text-[#c9d1d9] hover:bg-[#21262d]"
+              )}
+            >
+              <div className="flex items-center gap-2.5">
+                <div className={cn(
+                  "w-4 h-4 rounded border flex items-center justify-center transition-colors",
+                  isAllSelected ? "bg-[#1f6feb] border-[#1f6feb] text-white" : "border-[#30363d]"
+                )}>
+                  {isAllSelected && <Check className="w-3 h-3 stroke-[3]" />}
+                </div>
+                <span>Todos los Estados</span>
+              </div>
+              <span className="text-[10px] font-mono text-[#8b949e] bg-[#21262d] px-1.5 py-0.5 rounded">
+                {orders.length}
+              </span>
+            </div>
+
+            <div className="my-1 border-t border-[#30363d]/50" />
+
+            {statuses.map(status => {
+              const isChecked = selectedStatuses.includes(status);
+              const count = statusCounts[status] || 0;
+              return (
+                <div
+                  key={status}
+                  onClick={() => toggleStatus(status)}
+                  className={cn(
+                    "flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs cursor-pointer transition-colors",
+                    isChecked 
+                      ? "bg-[#1f6feb]/15 text-[#58a6ff] font-medium" 
+                      : "text-[#c9d1d9] hover:bg-[#21262d]"
+                  )}
+                >
+                  <div className="flex items-center gap-2.5 min-w-0 pr-2">
+                    <div className={cn(
+                      "w-4 h-4 rounded border flex items-center justify-center shrink-0 transition-colors",
+                      isChecked 
+                        ? "bg-[#1f6feb] border-[#1f6feb] text-white" 
+                        : "border-[#30363d]"
+                    )}>
+                      {isChecked && <Check className="w-3 h-3 stroke-[3]" />}
+                    </div>
+                    <span className="truncate">{status}</span>
+                  </div>
+                  <span className="text-[10px] font-mono text-[#8b949e] bg-[#21262d] px-1.5 py-0.5 rounded shrink-0">
+                    {count}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </div>
   );
 }

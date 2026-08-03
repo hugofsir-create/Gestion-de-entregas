@@ -1312,10 +1312,12 @@ export default function EfficiencyDashboard({ orders }: EfficiencyDashboardProps
                 <tr className="border-b border-[#30363d] text-[#8b949e] bg-[#0b0e14]/10 font-sans font-medium">
                   <th className="py-2.5 px-4">Pedido ID</th>
                   <th className="py-2.5 px-3">Cliente</th>
+                  <th className="py-2.5 px-3">Destinatario</th>
                   <th className="py-2.5 px-3">Ubicación / Destino</th>
                   <th className="py-2.5 px-3 text-center font-mono">Turno</th>
                   <th className="py-2.5 px-3 text-right">Peso</th>
                   <th className="py-2.5 px-3 text-right">Bultos</th>
+                  <th className="py-2.5 px-3 text-center">Días Transcurridos</th>
                   <th className="py-2.5 px-3 text-center">SLA Límite</th>
                   <th className="py-2.5 px-4 text-center">Estado TMS</th>
                 </tr>
@@ -1327,6 +1329,11 @@ export default function EfficiencyDashboard({ orders }: EfficiencyDashboardProps
                       ? new Date(order.deliveryDeadline) 
                       : order.deliveryDeadline;
                     const formatLimit = format(parsedDeadline, 'dd/MM/yy HH:mm');
+
+                    const createdAtDate = typeof order.createdAt === 'string'
+                      ? new Date(order.createdAt)
+                      : order.createdAt;
+                    const elapsedDays = Math.max(0, differenceInDays(new Date(), createdAtDate));
                     
                     return (
                       <tr key={order.id} className="hover:bg-[#1c2128]/50 transition-colors">
@@ -1335,6 +1342,9 @@ export default function EfficiencyDashboard({ orders }: EfficiencyDashboardProps
                         </td>
                         <td className="py-3 px-3 font-medium text-[#e6edf3]">
                           {order.customerName}
+                        </td>
+                        <td className="py-3 px-3 text-[#e6edf3] font-medium truncate max-w-[150px]" title={order.recipient}>
+                          {order.recipient || '-'}
                         </td>
                         <td className="py-3 px-3 text-[#8b949e]">
                           {order.location}
@@ -1347,6 +1357,17 @@ export default function EfficiencyDashboard({ orders }: EfficiencyDashboardProps
                         </td>
                         <td className="py-3 px-3 text-right font-mono text-[#e6edf3]">
                           {order.packages}
+                        </td>
+                        <td className="py-3 px-3 text-center font-mono">
+                          <span className={cn(
+                            "inline-flex items-center px-2 py-0.5 rounded text-[10px] font-semibold border",
+                            elapsedDays === 0 && "bg-emerald-500/10 text-emerald-400 border-emerald-500/20",
+                            elapsedDays > 0 && elapsedDays <= 3 && "bg-[#1f6feb]/10 text-[#58a6ff] border-[#1f6feb]/20",
+                            elapsedDays > 3 && elapsedDays <= 6 && "bg-amber-500/10 text-amber-400 border-amber-500/20",
+                            elapsedDays > 6 && "bg-rose-500/10 text-rose-400 border-rose-500/20"
+                          )}>
+                            {elapsedDays} {elapsedDays === 1 ? 'día' : 'días'}
+                          </span>
                         </td>
                         <td className="py-3 px-3 text-center font-mono text-[#8b949e]">
                           {formatLimit}
@@ -1361,7 +1382,7 @@ export default function EfficiencyDashboard({ orders }: EfficiencyDashboardProps
                   })
                 ) : (
                   <tr>
-                    <td colSpan={8} className="py-8 text-center text-[#8b949e] italic">
+                    <td colSpan={10} className="py-8 text-center text-[#8b949e] italic">
                       No hay registros coincidentes
                     </td>
                   </tr>
