@@ -23,7 +23,7 @@ import {
   X,
   MapPin
 } from 'lucide-react';
-import { format, isPast, isWithinInterval, addDays, differenceInDays } from 'date-fns';
+import { format, isPast, isWithinInterval, addDays, addHours, differenceInDays } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { motion, AnimatePresence } from 'motion/react';
 import { toast, Toaster } from 'sonner';
@@ -36,7 +36,7 @@ import {
   clearMonitoredDirectoryHandle 
 } from './lib/directory-store';
 import EfficiencyDashboard from '@/components/EfficiencyDashboard';
-import LeadTimeConfigModal from '@/components/LeadTimeConfigModal';
+import LeadTimeConfigModal, { normalizeHours } from '@/components/LeadTimeConfigModal';
 
 import { 
   Card, 
@@ -120,7 +120,7 @@ export default function App() {
     }
   });
 
-  // Configuración de Lead Time por Zona / Localidad
+  // Configuración de Lead Time por Zona / Localidad (SLA en horas)
   const [zoneLeadTimes, setZoneLeadTimes] = useState<Record<string, number>>(() => {
     try {
       const saved = localStorage.getItem('calico_zone_lead_times');
@@ -129,24 +129,25 @@ export default function App() {
       console.error("Error loading zone lead times:", e);
     }
     return {
-      'CABA': 2,
-      'GBA Zona Norte': 3,
-      'GBA Zona Sur': 3,
-      'GBA Zona Oeste': 3,
-      'Córdoba': 4,
-      'Mendoza': 5,
-      'Santa Fe': 4
+      'CABA': 48,
+      'GBA Zona Norte': 72,
+      'GBA Zona Sur': 72,
+      'GBA Zona Oeste': 72,
+      'Tucumán': 48,
+      'Córdoba': 96,
+      'Mendoza': 120,
+      'Santa Fe': 96
     };
   });
 
   const [defaultLeadTime, setDefaultLeadTime] = useState<number>(() => {
     try {
       const saved = localStorage.getItem('calico_default_lead_time');
-      if (saved) return Number(saved) || 3;
+      if (saved) return Number(saved) || 72;
     } catch (e) {
       console.error("Error loading default lead time:", e);
     }
-    return 3;
+    return 72;
   });
 
   const [showLeadTimeModal, setShowLeadTimeModal] = useState(false);
@@ -162,10 +163,11 @@ export default function App() {
     return Array.from(locs).sort();
   }, [orders]);
 
-  const calculateSLAForOrder = (order: Order, leadTimes: Record<string, number>, defaultDays: number): Order => {
+  const calculateSLAForOrder = (order: Order, leadTimes: Record<string, number>, defaultHoursVal: number): Order => {
     const zone = order.location ? order.location.trim() : '';
-    const leadDays = (zone && zone in leadTimes) ? leadTimes[zone] : defaultDays;
-    const newDeadline = addDays(order.createdAt, leadDays);
+    const rawLead = (zone && zone in leadTimes) ? leadTimes[zone] : defaultHoursVal;
+    const hours = normalizeHours(rawLead);
+    const newDeadline = addHours(order.createdAt, hours);
     return {
       ...order,
       deliveryDeadline: newDeadline
@@ -745,11 +747,11 @@ export default function App() {
               
               {/* Columns instruction */}
               <div className="grid grid-cols-2 gap-x-4 mt-3 text-[11px] font-mono bg-[#0b0e14]/60 p-3 rounded-lg border border-[#30363d]/60 text-[#c9d1d9]">
-                <span>A: Estado TMS</span>
+                <span className="text-[#3fb950] font-bold">A: ID Pedido</span>
                 <span>B: Fecha Creación</span>
                 <span>C: Cliente</span>
                 <span className="text-[#3fb950] font-bold">D: Destinatario</span>
-                <span>E: ID Pedido</span>
+                <span>E: Estado TMS / Detalle</span>
                 <span>F: Localidad</span>
                 <span>G: Bultos</span>
                 <span>H: Kilos</span>
@@ -833,7 +835,7 @@ export default function App() {
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-y-2.5 gap-x-6 text-[12px] text-[#c9d1d9] font-mono">
                 <div className="flex items-center gap-2">
                   <span className="text-[#3fb950] font-bold">A:</span>
-                  <span>Estado TMS</span>
+                  <span className="text-[#3fb950] font-semibold">ID Pedido</span>
                 </div>
                 <div className="flex items-center gap-2">
                   <span className="text-[#3fb950] font-bold">B:</span>
@@ -849,7 +851,7 @@ export default function App() {
                 </div>
                 <div className="flex items-center gap-2">
                   <span className="text-[#3fb950] font-bold">E:</span>
-                  <span>ID Pedido</span>
+                  <span>Estado TMS / Detalle</span>
                 </div>
                 <div className="flex items-center gap-2">
                   <span className="text-[#3fb950] font-bold">F:</span>
@@ -1279,21 +1281,21 @@ export default function App() {
                     <span>Última importación: {lastImported ? lastImported : 'Sin registros'}</span>
                   </div>
                 </div>
-                <div className="overflow-x-auto w-fit max-w-full border-[#30363d] border rounded-lg">
-                  <Table className="border-collapse table-fixed w-[1330px]">
+                <div className="overflow-x-auto w-full border-[#30363d] border rounded-lg">
+                  <Table className="border-collapse table-fixed w-full min-w-[1100px]">
                     <TableHeader>
-                      <TableRow className="border-[#30363d] hover:bg-transparent">
-                        <TableHead className="text-[#8b949e] uppercase text-[10px] h-10 px-2 whitespace-nowrap w-[150px]">ID Pedido</TableHead>
-                        <TableHead className="text-[#8b949e] uppercase text-[10px] h-10 px-2 whitespace-nowrap w-[110px]">Estado TMS</TableHead>
-                        <TableHead className="text-[#8b949e] uppercase text-[10px] h-10 px-2 whitespace-nowrap w-[170px]">Cliente</TableHead>
-                        <TableHead className="text-[#8b949e] uppercase text-[10px] h-10 px-2 whitespace-nowrap w-[160px]">Destinatario</TableHead>
-                        <TableHead className="text-[#8b949e] uppercase text-[10px] h-10 px-2 whitespace-nowrap w-[130px]">Localidad</TableHead>
-                        <TableHead className="text-[#8b949e] uppercase text-[10px] h-10 px-2 whitespace-nowrap w-[85px]">Creación</TableHead>
-                        <TableHead className="text-[#8b949e] uppercase text-[10px] h-10 px-2 text-center whitespace-nowrap w-[120px]" title="Días transcurridos desde la fecha de creación hasta hoy">Días Transcurridos</TableHead>
-                        <TableHead className="text-[#8b949e] uppercase text-[10px] h-10 px-2 whitespace-nowrap w-[100px]">Vencimiento</TableHead>
-                        <TableHead className="text-[#8b949e] uppercase text-[10px] h-10 px-2 whitespace-nowrap w-[70px]">Turno</TableHead>
-                        <TableHead className="text-[#8b949e] uppercase text-[10px] h-10 px-2 whitespace-nowrap w-[80px] text-right">Bultos/Kg</TableHead>
-                        <TableHead className="text-[#8b949e] uppercase text-[10px] h-10 px-2 text-center whitespace-nowrap w-[110px]">Estado</TableHead>
+                      <TableRow className="border-[#30363d] hover:bg-transparent bg-[#161b22]/50">
+                        <TableHead className="text-[#8b949e] uppercase text-[10px] h-9 px-2 whitespace-nowrap w-[110px]">ID Pedido</TableHead>
+                        <TableHead className="text-[#8b949e] uppercase text-[10px] h-9 px-2 whitespace-nowrap w-[95px]">Estado TMS</TableHead>
+                        <TableHead className="text-[#8b949e] uppercase text-[10px] h-9 px-2 whitespace-nowrap w-[130px]">Cliente</TableHead>
+                        <TableHead className="text-[#8b949e] uppercase text-[10px] h-9 px-2 whitespace-nowrap w-[130px]">Destinatario</TableHead>
+                        <TableHead className="text-[#8b949e] uppercase text-[10px] h-9 px-2 whitespace-nowrap w-[110px]">Localidad</TableHead>
+                        <TableHead className="text-[#8b949e] uppercase text-[10px] h-9 px-2 whitespace-nowrap w-[80px]">Creación</TableHead>
+                        <TableHead className="text-[#8b949e] uppercase text-[10px] h-9 px-2 text-center whitespace-nowrap w-[105px]" title="Días transcurridos desde la fecha de creación hasta hoy">Días Transcurridos</TableHead>
+                        <TableHead className="text-[#8b949e] uppercase text-[10px] h-9 px-2 whitespace-nowrap w-[95px]">Vencimiento</TableHead>
+                        <TableHead className="text-[#8b949e] uppercase text-[10px] h-9 px-2 whitespace-nowrap w-[65px]">Turno</TableHead>
+                        <TableHead className="text-[#8b949e] uppercase text-[10px] h-9 px-2 whitespace-nowrap w-[75px] text-right">Bultos/Kg</TableHead>
+                        <TableHead className="text-[#8b949e] uppercase text-[10px] h-9 px-2 text-center whitespace-nowrap w-[95px]">Estado</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -1304,27 +1306,27 @@ export default function App() {
                             key={order.uniqueId}
                             className="border-[#21262d] hover:bg-[#1c2128] transition-colors"
                           >
-                            <TableCell className="px-2 py-2 font-mono text-[#58a6ff] text-[12px] whitespace-nowrap">#{order.id}</TableCell>
-                            <TableCell className="px-2 py-2 whitespace-nowrap">
+                            <TableCell className="px-2 py-1.5 font-mono text-[#58a6ff] text-[11px] whitespace-nowrap">#{order.id}</TableCell>
+                            <TableCell className="px-2 py-1.5 whitespace-nowrap">
                               <Badge variant="outline" className="bg-[#161b22] border-[#30363d] text-[#8b949e] text-[9px] whitespace-nowrap">
                                 {order.tmsStatus}
                               </Badge>
                             </TableCell>
-                            <TableCell className="px-2 py-2 font-medium text-[#e6edf3] text-[12px] whitespace-nowrap truncate" title={order.customerName}>
+                            <TableCell className="px-2 py-1.5 font-medium text-[#e6edf3] text-[10px] whitespace-nowrap truncate max-w-[130px]" title={order.customerName}>
                               {order.customerName}
                             </TableCell>
-                            <TableCell className="px-2 py-2 text-[#e6edf3] text-[12px] whitespace-nowrap truncate" title={order.recipient}>
+                            <TableCell className="px-2 py-1.5 text-[#e6edf3] text-[10px] whitespace-nowrap truncate max-w-[130px]" title={order.recipient}>
                               {order.recipient}
                             </TableCell>
-                            <TableCell className="px-2 py-2 text-[#8b949e] text-[12px] whitespace-nowrap truncate" title={order.location}>
+                            <TableCell className="px-2 py-1.5 text-[#8b949e] text-[11px] whitespace-nowrap truncate max-w-[110px]" title={order.location}>
                               {order.location}
                             </TableCell>
-                            <TableCell className="px-2 py-2 text-[#8b949e] text-[12px] whitespace-nowrap">
+                            <TableCell className="px-2 py-1.5 text-[#8b949e] text-[11px] whitespace-nowrap">
                               {format(order.createdAt, 'dd/MM/yyyy', { locale: es })}
                             </TableCell>
-                            <TableCell className="px-2 py-2 text-center whitespace-nowrap">
+                            <TableCell className="px-2 py-1.5 text-center whitespace-nowrap">
                               <Badge variant="outline" className={cn(
-                                "text-[10px] font-mono font-semibold px-2 py-0.5 border",
+                                "text-[9px] font-mono font-semibold px-1.5 py-0.5 border",
                                 elapsedDays === 0 && "bg-emerald-500/10 text-emerald-400 border-emerald-500/20",
                                 elapsedDays > 0 && elapsedDays <= 3 && "bg-[#1f6feb]/10 text-[#58a6ff] border-[#1f6feb]/20",
                                 elapsedDays > 3 && elapsedDays <= 6 && "bg-amber-500/10 text-amber-400 border-amber-500/20",
@@ -1333,20 +1335,20 @@ export default function App() {
                                 {elapsedDays} {elapsedDays === 1 ? 'día' : 'días'}
                               </Badge>
                             </TableCell>
-                            <TableCell className="px-2 py-2 whitespace-nowrap">
+                            <TableCell className="px-2 py-1.5 whitespace-nowrap">
                               <div className="flex flex-col whitespace-nowrap leading-tight">
-                                <span className="text-[#e6edf3] text-[12px]">{format(order.deliveryDeadline, 'dd/MM/yyyy', { locale: es })}</span>
-                                <span className="text-[10px] text-[#8b949e] font-mono">{getTimeLeft(order.deliveryDeadline)}</span>
+                                <span className="text-[#e6edf3] text-[11px]">{format(order.deliveryDeadline, 'dd/MM/yyyy', { locale: es })}</span>
+                                <span className="text-[9px] text-[#8b949e] font-mono">{getTimeLeft(order.deliveryDeadline)}</span>
                               </div>
                             </TableCell>
-                            <TableCell className="px-2 py-2 text-[12px] whitespace-nowrap">{order.shift}</TableCell>
-                            <TableCell className="px-2 py-2 whitespace-nowrap text-right">
-                              <div className="flex flex-col text-[11px] text-[#8b949e] whitespace-nowrap leading-tight">
+                            <TableCell className="px-2 py-1.5 text-[11px] whitespace-nowrap">{order.shift}</TableCell>
+                            <TableCell className="px-2 py-1.5 whitespace-nowrap text-right">
+                              <div className="flex flex-col text-[10px] text-[#8b949e] whitespace-nowrap leading-tight">
                                 <span>{order.packages} bultos</span>
                                 <span>{order.weight} kg</span>
                               </div>
                             </TableCell>
-                            <TableCell className="px-2 py-2 text-center whitespace-nowrap">
+                            <TableCell className="px-2 py-1.5 text-center whitespace-nowrap">
                               {getStatusTag(order)}
                             </TableCell>
                           </TableRow>

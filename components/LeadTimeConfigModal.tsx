@@ -7,7 +7,8 @@ import {
   Save, 
   RefreshCw, 
   AlertCircle,
-  HelpCircle
+  HelpCircle,
+  Check
 } from 'lucide-react';
 import {
   Dialog,
@@ -22,57 +23,100 @@ import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 
 interface LeadTimeConfigModalProps {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
+  isOpen: boolean;
+  onClose: () => void;
   zoneLeadTimes: Record<string, number>;
   defaultLeadTime: number;
-  onSaveLeadTimes: (
+  availableLocations: string[];
+  onSave: (
     newZoneLeadTimes: Record<string, number>, 
     newDefaultLeadTime: number, 
     recalculateOrders: boolean
   ) => void;
-  availableLocations: string[];
 }
 
+export const normalizeHours = (val: number): number => {
+  if (!val || val <= 0) return 72;
+  if (val <= 15) return val * 24; // Convert days to hours if legacy small number
+  return val;
+};
+
+export const formatLeadTimeDisplay = (hours: number): string => {
+  const normalized = normalizeHours(hours);
+  const days = normalized / 24;
+  if (days % 1 === 0) {
+    return `${normalized} hs (${days} ${days === 1 ? 'día' : 'días'})`;
+  }
+  return `${normalized} hs (${days.toFixed(1)} días)`;
+};
+
 export default function LeadTimeConfigModal({
-  open,
-  onOpenChange,
+  isOpen,
+  onClose,
   zoneLeadTimes,
   defaultLeadTime,
-  onSaveLeadTimes,
-  availableLocations
+  availableLocations,
+  onSave
 }: LeadTimeConfigModalProps) {
   const [localLeadTimes, setLocalLeadTimes] = useState<Record<string, number>>({});
-  const [localDefaultDays, setLocalDefaultDays] = useState<number>(3);
+  const [localDefaultHours, setLocalDefaultHours] = useState<number>(72);
+  
+  // Form states for adding custom zone
   const [newZoneName, setNewZoneName] = useState('');
-  const [newZoneDays, setNewZoneDays] = useState<number>(3);
+  const [newZoneValue, setNewZoneValue] = useState<number>(48);
+  const [newZoneUnit, setNewZoneUnit] = useState<'hours' | 'days'>('hours');
+  
   const [recalculateSLA, setRecalculateSLA] = useState<boolean>(true);
   const [searchTerm, setSearchTerm] = useState('');
 
-  // Sync state when dialog opens
+  // Default presets
+  const defaultPresets: Record<string, number> = {
+    'CABA': 48,
+    'GBA Zona Norte': 72,
+    'GBA Zona Sur': 72,
+    'GBA Zona Oeste': 72,
+    'Tucumán': 48,
+    'Córdoba': 96,
+    'Mendoza': 120,
+    'Santa Fe': 96
+  };
+
   useEffect(() => {
-    if (open) {
-      const merged: Record<string, number> = { ...zoneLeadTimes };
+    if (isOpen) {
+      const merged: Record<string, number> = {};
       
-      // Ensure all locations from current orders are populated
+      // Load existing from props or default presets
+      const source = Object.keys(zoneLeadTimes).length > 0 ? zoneLeadTimes : defaultPresets;
+      Object.entries(source).forEach(([zone, val]) => {
+        merged[zone] = normalizeHours(val);
+      });
+
+      // Ensure Tucumán is present by default
+      if (!('Tucumán' in merged) && !('TUCUMAN' in merged) && !('tucuman' in merged)) {
+        merged['Tucumán'] = 48;
+      }
+
+      // Ensure all locations present in loaded orders are populated
       availableLocations.forEach(loc => {
         if (loc && loc !== 'N/A' && !(loc in merged)) {
-          merged[loc] = defaultLeadTime;
+          merged[loc] = normalizeHours(defaultLeadTime);
         }
       });
 
       setLocalLeadTimes(merged);
-      setLocalDefaultDays(defaultLeadTime || 3);
+      setLocalDefaultHours(normalizeHours(defaultLeadTime || 72));
       setNewZoneName('');
-      setNewZoneDays(3);
+      setNewZoneValue(48);
+      setNewZoneUnit('hours');
     }
-  }, [open, zoneLeadTimes, defaultLeadTime, availableLocations]);
+  }, [isOpen, zoneLeadTimes, defaultLeadTime, availableLocations]);
 
-  const handleDayChange = (zone: string, days: number) => {
-    const validDays = Math.max(1, Math.min(30, days));
+  const handleValueChange = (zone: string, rawVal: number, unit: 'hours' | 'days') => {
+    const hours = unit === 'days' ? rawVal * 24 : rawVal;
+    const validHours = Math.max(1, Math.min(720, hours)); // max 30 days = 720 hours
     setLocalLeadTimes(prev => ({
       ...prev,
-      [zone]: validDays
+      [zone]: validHours
     }));
   };
 
@@ -81,12 +125,15 @@ export default function LeadTimeConfigModal({
     const trimmed = newZoneName.trim();
     if (!trimmed) return;
 
+    const hours = newZoneUnit === 'days' ? newZoneValue * 24 : newZoneValue;
     setLocalLeadTimes(prev => ({
       ...prev,
-      [trimmed]: Math.max(1, newZoneDays)
+      [trimmed]: Math.max(1, hours)
     }));
+
     setNewZoneName('');
-    setNewZoneDays(localDefaultDays);
+    setNewZoneValue(48);
+    setNewZoneUnit('hours');
   };
 
   const handleRemoveZone = (zone: string) => {
@@ -98,8 +145,8 @@ export default function LeadTimeConfigModal({
   };
 
   const handleSave = () => {
-    onSaveLeadTimes(localLeadTimes, localDefaultDays, recalculateSLA);
-    onOpenChange(false);
+    onSave(localLeadTimes, localDefaultHours, recalculateSLA);
+    onClose();
   };
 
   const filteredZones = Object.keys(localLeadTimes).filter(zone =>
@@ -107,163 +154,219 @@ export default function LeadTimeConfigModal({
   );
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="bg-[#161b22] border-[#30363d] text-[#e6edf3] max-w-2xl rounded-2xl p-6 shadow-2xl max-h-[90vh] flex flex-col">
+    <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="bg-[#161b22] border-[#30363d] text-[#e6edf3] max-w-7xl w-[96vw] rounded-2xl p-6 shadow-2xl max-h-[95vh] flex flex-col">
         <DialogHeader className="pb-3 border-b border-[#30363d] shrink-0">
-          <DialogTitle className="flex items-center gap-2.5 text-base font-bold text-[#e6edf3]">
+          <DialogTitle className="flex items-center gap-2.5 text-lg font-bold text-[#e6edf3]">
             <Clock className="w-5 h-5 text-[#a371f7]" />
-            Configuración de Lead Time por Zona / Localidad
+            Configuración de Lead Time por Zona / Localidad (SLA)
           </DialogTitle>
           <DialogDescription className="text-xs text-[#8b949e] pt-1 leading-relaxed text-left">
-            Define el plazo en días hábiles asignado a cada destino para calcular de manera automática la fecha límite de vencimiento (SLA) de las entregas.
+            Configura el tiempo de entrega en <strong className="text-[#e6edf3]">Horas (hs)</strong> o <strong className="text-[#e6edf3]">Días</strong> por localidad (ej. Tucumán 48 hs). Se utilizará para calcular automáticamente el vencimiento de cada pedido.
           </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-5 py-4 overflow-y-auto custom-scrollbar pr-1 flex-1 text-left">
-          {/* General Default Lead Time Card */}
-          <div className="p-4 bg-[#0d1117] border border-[#30363d] rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-            <div>
-              <h4 className="text-xs font-bold text-[#e6edf3] flex items-center gap-1.5">
-                <Clock className="w-4 h-4 text-[#58a6ff]" />
-                Lead Time General por Defecto
-              </h4>
-              <p className="text-[11px] text-[#8b949e] mt-0.5">
-                Días de entrega aplicados para localidades sin una regla específica asignada.
-              </p>
-            </div>
-            <div className="flex items-center gap-2 shrink-0">
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={() => setLocalDefaultDays(d => Math.max(1, d - 1))}
-                className="h-8 w-8 p-0 bg-[#21262d] border-[#30363d] text-white hover:bg-[#30363d]"
-              >
-                -
-              </Button>
-              <div className="flex items-center gap-1 bg-[#161b22] border border-[#30363d] px-3 py-1 rounded-md">
-                <span className="font-mono text-sm font-bold text-[#58a6ff]">{localDefaultDays}</span>
-                <span className="text-[11px] text-[#8b949e]">días</span>
+          {/* Top Section: General Default Lead Time & Add Custom Zone in 2 Columns */}
+          <div className="grid grid-cols-1 md:grid-cols-12 gap-4">
+            {/* General Default Lead Time Card */}
+            <div className="md:col-span-5 p-4 bg-[#0d1117] border border-[#30363d] rounded-xl flex flex-col justify-between gap-3">
+              <div>
+                <h4 className="text-xs font-bold text-[#e6edf3] flex items-center gap-1.5">
+                  <Clock className="w-4 h-4 text-[#58a6ff]" />
+                  Lead Time General por Defecto
+                </h4>
+                <p className="text-[11px] text-[#8b949e] mt-1">
+                  Plazo estándar aplicado a destinos sin regla específica configurada.
+                </p>
               </div>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={() => setLocalDefaultDays(d => d + 1)}
-                className="h-8 w-8 p-0 bg-[#21262d] border-[#30363d] text-white hover:bg-[#30363d]"
-              >
-                +
-              </Button>
+              <div className="flex items-center gap-2 pt-1">
+                <div className="flex items-center gap-1 bg-[#161b22] border border-[#30363d] p-1 rounded-lg w-full justify-between">
+                  {[24, 48, 72, 96, 120].map(hs => (
+                    <button
+                      key={hs}
+                      type="button"
+                      onClick={() => setLocalDefaultHours(hs)}
+                      className={cn(
+                        "px-2.5 py-1.5 text-[11px] font-mono rounded font-medium transition-all cursor-pointer flex-1 text-center",
+                        localDefaultHours === hs
+                          ? "bg-[#1f6feb] text-white shadow-sm font-bold"
+                          : "text-[#8b949e] hover:text-[#e6edf3] hover:bg-[#21262d]"
+                      )}
+                    >
+                      {hs}h
+                    </button>
+                  ))}
+                </div>
+              </div>
             </div>
-          </div>
 
-          {/* Add New Custom Zone Form */}
-          <form onSubmit={handleAddCustomZone} className="p-4 bg-[#0d1117]/60 border border-[#30363d] rounded-xl space-y-3">
-            <h4 className="text-xs font-bold text-[#e6edf3] flex items-center gap-1.5">
-              <Plus className="w-4 h-4 text-[#3fb950]" />
-              Agregar Nueva Zona o Localidad
-            </h4>
-            <div className="flex flex-col sm:flex-row gap-2.5">
-              <Input
-                type="text"
-                placeholder="Nombre de la zona / localidad (ej. CABA, Córdoba)"
-                value={newZoneName}
-                onChange={e => setNewZoneName(e.target.value)}
-                className="bg-[#161b22] border-[#30363d] text-xs h-9 text-[#e6edf3] placeholder:text-[#8b949e] flex-1"
-              />
-              <div className="flex items-center gap-2">
-                <div className="flex items-center gap-1.5 bg-[#161b22] border border-[#30363d] px-2.5 h-9 rounded-md shrink-0">
-                  <span className="text-[11px] text-[#8b949e]">Días:</span>
+            {/* Add New Custom Zone Form */}
+            <form onSubmit={handleAddCustomZone} className="md:col-span-7 p-4 bg-[#0d1117]/60 border border-[#30363d] rounded-xl space-y-3">
+              <div className="flex items-center justify-between">
+                <h4 className="text-xs font-bold text-[#e6edf3] flex items-center gap-1.5">
+                  <Plus className="w-4 h-4 text-[#3fb950]" />
+                  Agregar o Configurar Nueva Zona (ej. Tucumán 48 hs)
+                </h4>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-12 gap-2">
+                <Input
+                  type="text"
+                  placeholder="Localidad / Zona (ej. Tucumán, Salta)"
+                  value={newZoneName}
+                  onChange={e => setNewZoneName(e.target.value)}
+                  className="sm:col-span-6 bg-[#161b22] border-[#30363d] text-xs h-9 text-[#e6edf3] placeholder:text-[#8b949e]"
+                />
+
+                <div className="sm:col-span-4 flex items-center gap-1 bg-[#161b22] border border-[#30363d] px-2 h-9 rounded-md">
                   <Input
                     type="number"
                     min={1}
-                    max={30}
-                    value={newZoneDays}
-                    onChange={e => setNewZoneDays(parseInt(e.target.value) || 1)}
+                    max={720}
+                    value={newZoneValue}
+                    onChange={e => setNewZoneValue(parseInt(e.target.value) || 1)}
                     className="bg-transparent border-0 text-xs font-mono font-bold text-white w-12 p-0 focus-visible:ring-0 text-center"
                   />
+                  <div className="flex bg-[#0d1117] p-0.5 rounded border border-[#30363d]">
+                    <button
+                      type="button"
+                      onClick={() => setNewZoneUnit('hours')}
+                      className={cn(
+                        "px-1.5 py-0.5 text-[10px] font-medium rounded transition-colors cursor-pointer",
+                        newZoneUnit === 'hours' ? "bg-[#a371f7] text-white font-bold" : "text-[#8b949e]"
+                      )}
+                    >
+                      hs
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setNewZoneUnit('days')}
+                      className={cn(
+                        "px-1.5 py-0.5 text-[10px] font-medium rounded transition-colors cursor-pointer",
+                        newZoneUnit === 'days' ? "bg-[#a371f7] text-white font-bold" : "text-[#8b949e]"
+                      )}
+                    >
+                      días
+                    </button>
+                  </div>
                 </div>
+
                 <Button
                   type="submit"
                   disabled={!newZoneName.trim()}
-                  className="bg-[#238636] hover:bg-[#2ea043] text-white text-xs h-9 px-3.5 shrink-0 flex items-center gap-1.5 font-medium"
+                  className="sm:col-span-2 bg-[#238636] hover:bg-[#2ea043] text-white text-xs h-9 px-2 flex items-center justify-center gap-1 font-medium cursor-pointer"
                 >
                   <Plus className="w-3.5 h-3.5" />
                   Agregar
                 </Button>
               </div>
-            </div>
-          </form>
 
-          {/* Zones List with Search */}
-          <div className="space-y-2.5">
-            <div className="flex items-center justify-between">
+              {/* Quick Chips for Zone Creation */}
+              <div className="flex items-center gap-2 pt-0.5 overflow-x-auto pb-0.5">
+                <span className="text-[10px] text-[#8b949e] font-mono shrink-0">Presets rápidos:</span>
+                {[
+                  { label: '24 hs (1d)', val: 24 },
+                  { label: '48 hs (2d)', val: 48 },
+                  { label: '72 hs (3d)', val: 72 },
+                  { label: '96 hs (4d)', val: 96 },
+                  { label: '120 hs (5d)', val: 120 }
+                ].map(chip => (
+                  <button
+                    key={chip.val}
+                    type="button"
+                    onClick={() => {
+                      setNewZoneValue(chip.val);
+                      setNewZoneUnit('hours');
+                    }}
+                    className={cn(
+                      "px-2 py-0.5 text-[10px] rounded-full border border-[#30363d] font-mono transition-colors cursor-pointer shrink-0",
+                      newZoneValue === chip.val && newZoneUnit === 'hours'
+                        ? "bg-[#a371f7]/20 border-[#a371f7] text-[#d2a8ff] font-bold"
+                        : "bg-[#161b22] text-[#8b949e] hover:text-[#e6edf3]"
+                    )}
+                  >
+                    {chip.label}
+                  </button>
+                ))}
+              </div>
+            </form>
+          </div>
+
+          {/* Registered Zones List with Search */}
+          <div className="space-y-3">
+            <div className="flex items-center justify-between gap-4">
               <h4 className="text-xs font-bold text-[#e6edf3] uppercase tracking-wider font-sans flex items-center gap-1.5">
-                <MapPin className="w-3.5 h-3.5 text-[#a371f7]" />
-                Lead Time por Zonas Registradas ({Object.keys(localLeadTimes).length})
+                <MapPin className="w-4 h-4 text-[#a371f7]" />
+                Lead Time por Zonas ({filteredZones.length} / {Object.keys(localLeadTimes).length})
               </h4>
               <Input
                 type="text"
-                placeholder="Buscar localidad..."
+                placeholder="Buscar localidad (ej. Tucumán)..."
                 value={searchTerm}
                 onChange={e => setSearchTerm(e.target.value)}
-                className="bg-[#0d1117] border-[#30363d] text-xs h-7 w-48 text-[#e6edf3] placeholder:text-[#8b949e]"
+                className="bg-[#0d1117] border-[#30363d] text-xs h-8 w-64 text-[#e6edf3] placeholder:text-[#8b949e]"
               />
             </div>
 
-            <div className="border border-[#30363d] rounded-xl overflow-hidden bg-[#0d1117]/40 max-h-56 overflow-y-auto custom-scrollbar">
+            <div className="border border-[#30363d] rounded-xl p-4 bg-[#0d1117]/50 min-h-[250px] max-h-[62vh] overflow-y-auto custom-scrollbar">
               {filteredZones.length > 0 ? (
-                <div className="divide-y divide-[#30363d]/60">
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
                   {filteredZones.map(zone => {
-                    const days = localLeadTimes[zone];
+                    const hours = localLeadTimes[zone];
                     const isFromOrders = availableLocations.includes(zone);
 
                     return (
                       <div 
                         key={zone} 
-                        className="p-3 flex items-center justify-between hover:bg-[#161b22]/70 transition-colors gap-2"
+                        className="p-3 bg-[#161b22] border border-[#30363d] rounded-lg flex items-center justify-between hover:border-[#58a6ff]/50 transition-all gap-3"
                       >
-                        <div className="flex items-center gap-2 min-w-0">
-                          <MapPin className="w-3.5 h-3.5 text-[#8b949e] shrink-0" />
-                          <span className="text-xs font-medium text-[#e6edf3] truncate" title={zone}>
-                            {zone}
-                          </span>
+                        <div className="flex items-center gap-2 min-w-0 flex-1">
+                          <MapPin className="w-3.5 h-3.5 text-[#a371f7] shrink-0" />
+                          <div className="flex flex-col min-w-0">
+                            <span className="text-xs font-bold text-[#e6edf3] truncate" title={zone}>
+                              {zone}
+                            </span>
+                            <span className="text-[10px] text-[#8b949e] font-mono">
+                              {hours / 24} {hours / 24 === 1 ? 'día' : 'días'} ({hours} hs)
+                            </span>
+                          </div>
                           {isFromOrders && (
-                            <Badge variant="outline" className="bg-[#1f6feb]/10 text-[#58a6ff] border-[#1f6feb]/20 text-[9px] px-1.5 py-0 shrink-0">
+                            <Badge variant="outline" className="bg-[#1f6feb]/10 text-[#58a6ff] border-[#1f6feb]/20 text-[9px] px-1.5 py-0 shrink-0 ml-auto">
                               En base
                             </Badge>
                           )}
                         </div>
 
-                        <div className="flex items-center gap-2 shrink-0">
+                        <div className="flex items-center gap-1.5 shrink-0">
                           <div className="flex items-center gap-1">
-                            <Button
-                              type="button"
-                              variant="outline"
-                              size="sm"
-                              onClick={() => handleDayChange(zone, days - 1)}
-                              className="h-7 w-7 p-0 bg-[#21262d] border-[#30363d] text-white hover:bg-[#30363d] text-xs"
-                            >
-                              -
-                            </Button>
+                            {[24, 48, 72, 96].map(h => (
+                              <button
+                                key={h}
+                                type="button"
+                                onClick={() => handleValueChange(zone, h, 'hours')}
+                                className={cn(
+                                  "px-2 py-1 text-[10px] font-mono rounded border border-[#30363d] transition-all cursor-pointer",
+                                  hours === h
+                                    ? "bg-[#a371f7]/25 border-[#a371f7] text-[#d2a8ff] font-bold shadow-sm"
+                                    : "bg-[#0d1117] text-[#8b949e] hover:text-[#e6edf3]"
+                                )}
+                              >
+                                {h}h
+                              </button>
+                            ))}
+                          </div>
+
+                          <div className="flex items-center gap-1 bg-[#0d1117] border border-[#30363d] px-2 h-7 rounded">
                             <Input
                               type="number"
                               min={1}
-                              max={30}
-                              value={days}
-                              onChange={e => handleDayChange(zone, parseInt(e.target.value) || 1)}
-                              className="bg-[#161b22] border-[#30363d] text-xs font-mono font-bold text-center w-12 h-7 p-0 text-[#58a6ff]"
+                              max={720}
+                              value={hours}
+                              onChange={e => handleValueChange(zone, parseInt(e.target.value) || 1, 'hours')}
+                              className="bg-transparent border-0 text-xs font-mono font-bold text-center w-10 h-6 p-0 text-[#a371f7] focus-visible:ring-0"
                             />
-                            <Button
-                              type="button"
-                              variant="outline"
-                              size="sm"
-                              onClick={() => handleDayChange(zone, days + 1)}
-                              className="h-7 w-7 p-0 bg-[#21262d] border-[#30363d] text-white hover:bg-[#30363d] text-xs"
-                            >
-                              +
-                            </Button>
-                            <span className="text-[11px] text-[#8b949e] ml-1">días</span>
+                            <span className="text-[10px] text-[#8b949e] font-mono">hs</span>
                           </div>
 
                           <Button
@@ -271,7 +374,7 @@ export default function LeadTimeConfigModal({
                             variant="ghost"
                             size="sm"
                             onClick={() => handleRemoveZone(zone)}
-                            className="h-7 w-7 p-0 text-[#8b949e] hover:text-rose-400 hover:bg-rose-500/10"
+                            className="h-7 w-7 p-0 text-[#8b949e] hover:text-rose-400 hover:bg-rose-500/10 cursor-pointer"
                           >
                             <Trash2 className="w-3.5 h-3.5" />
                           </Button>
@@ -281,7 +384,7 @@ export default function LeadTimeConfigModal({
                   })}
                 </div>
               ) : (
-                <div className="p-6 text-center text-xs text-[#8b949e] italic">
+                <div className="p-8 text-center text-xs text-[#8b949e] italic">
                   {searchTerm ? 'No se encontraron zonas coincidentes.' : 'No hay zonas registradas.'}
                 </div>
               )}
@@ -289,17 +392,17 @@ export default function LeadTimeConfigModal({
           </div>
 
           {/* Recalculate SLA Checkbox */}
-          <div className="p-3.5 bg-[#161b22] border border-[#30363d] rounded-xl flex items-center gap-3">
+          <div className="p-3.5 bg-[#0d1117] border border-[#30363d] rounded-xl flex items-center gap-3">
             <input
               type="checkbox"
               id="recalculate-sla"
               checked={recalculateSLA}
               onChange={e => setRecalculateSLA(e.target.checked)}
-              className="w-4 h-4 rounded border-[#30363d] text-[#1f6feb] focus:ring-0 bg-[#0d1117] cursor-pointer"
+              className="w-4 h-4 rounded border-[#30363d] text-[#1f6feb] focus:ring-0 bg-[#161b22] cursor-pointer"
             />
             <label htmlFor="recalculate-sla" className="text-xs text-[#c9d1d9] cursor-pointer leading-tight">
-              <strong className="text-white block font-medium">Recalcular fechas de vencimiento (SLA)</strong>
-              Actualizar la fecha límite de los pedidos cargados según su zona y su fecha de creación.
+              <strong className="text-white font-semibold">Recalcular vencimientos (SLA) de pedidos existentes</strong>
+              <span className="text-[#8b949e] ml-2">Actualiza automáticamente las fechas límite de todos los pedidos cargados utilizando estas horas de Lead Time.</span>
             </label>
           </div>
         </div>
@@ -313,15 +416,15 @@ export default function LeadTimeConfigModal({
             <Button
               type="button"
               variant="outline"
-              onClick={() => onOpenChange(false)}
-              className="bg-[#21262d] border-[#30363d] hover:bg-[#30363d] text-[#e6edf3] text-xs h-9 px-4 font-medium"
+              onClick={onClose}
+              className="bg-[#21262d] border-[#30363d] hover:bg-[#30363d] text-[#e6edf3] text-xs h-9 px-5 font-medium cursor-pointer"
             >
               Cancelar
             </Button>
             <Button
               type="button"
               onClick={handleSave}
-              className="bg-[#1f6feb] hover:bg-[#388bfd] text-white text-xs h-9 px-4 flex items-center gap-1.5 font-medium"
+              className="bg-[#1f6feb] hover:bg-[#388bfd] text-white text-xs h-9 px-5 flex items-center gap-1.5 font-medium cursor-pointer"
             >
               <Save className="w-3.5 h-3.5" />
               Guardar Configuración

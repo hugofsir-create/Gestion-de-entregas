@@ -84,12 +84,12 @@ export const parseExcelFile = (file: File): Promise<ParseResult> => {
           return defaultIdx;
         };
 
-        // Resolve dynamic indices based on header labels
-        const idxStatus = findColumnIndex(['estado tms', 'tms', 'estado', 'status tms', 'status'], 0);
+        // Resolve dynamic indices based on header labels (Col A: ID Pedido, Col B: Creacion, Col C: Cliente, Col D: Destinatario, Col E: Estado TMS)
+        const idxId = findColumnIndex(['id pedido', 'pedido', 'numero pedido', 'nro pedido', 'nro_pedido', 'numero de pedido', 'nro de pedido', 'id', 'id_pedido', 'nro_remito', 'remito'], 0);
         const idxCreated = findColumnIndex(['fecha creacion', 'creacion', 'fecha_creacion', 'creado', 'fecha creado', 'fecha de creacion', 'fecha'], 1);
         const idxCustomer = findColumnIndex(['cliente', 'customer', 'nombre cliente', 'nombre_cliente', 'razon social'], 2);
-        const idxRecipient = findColumnIndex(['destinatario', 'recipient', 'entregar a', 'recibe', 'nombre de entrega', 'destinatarios', 'razon social destinatario', 'nombre'], 3);
-        const idxId = findColumnIndex(['id pedido', 'pedido', 'numero pedido', 'nro pedido', 'nro_pedido', 'numero de pedido', 'nro de pedido', 'id', 'id_pedido', 'nro_remito', 'remito'], 4);
+        const idxRecipient = findColumnIndex(['destinatario', 'recipient', 'entregar a', 'recibe', 'nombre de entrega', 'destinatarios', 'razon social destinatario'], 3);
+        const idxStatus = findColumnIndex(['estado tms', 'tms', 'estado', 'status tms', 'status'], 4);
         const idxLocation = findColumnIndex(['localidad', 'ciudad', 'provincia', 'destino', 'location', 'localidades', 'municipio', 'zona'], 5);
         const idxPackages = findColumnIndex(['bultos', 'bulto', 'cantidad bultos', 'cant bultos', 'packages', 'unidades', 'piezas', 'cant'], 6);
         const idxWeight = findColumnIndex(['kilos', 'kilo', 'kg', 'kgs', 'peso', 'weight', 'kilogramos'], 7);
@@ -99,11 +99,11 @@ export const parseExcelFile = (file: File): Promise<ParseResult> => {
 
         // Identify matched columns set for exclusion logic
         const matchedIndicesSet = new Set([
-          idxStatus,
+          idxId,
           idxCreated,
           idxCustomer,
           idxRecipient,
-          idxId,
+          idxStatus,
           idxLocation,
           idxPackages,
           idxWeight,
@@ -116,11 +116,11 @@ export const parseExcelFile = (file: File): Promise<ParseResult> => {
         const detectedRequired: { label: string; index: number; originalName: string }[] = [];
 
         const columnLabels = [
-          { key: 'Estado TMS', index: idxStatus },
+          { key: 'ID Pedido', index: idxId },
           { key: 'Fecha Creación', index: idxCreated },
           { key: 'Cliente', index: idxCustomer },
           { key: 'Destinatario', index: idxRecipient },
-          { key: 'ID Pedido', index: idxId },
+          { key: 'Estado TMS', index: idxStatus },
           { key: 'Localidad', index: idxLocation },
           { key: 'Bultos', index: idxPackages },
           { key: 'Kilos', index: idxWeight },
@@ -158,21 +158,26 @@ export const parseExcelFile = (file: File): Promise<ParseResult> => {
             return row.some(cell => cell !== undefined && cell !== null && String(cell).trim() !== '');
           })
           .map((row: any[], index) => {
-            const tmsStatus = String(row[idxStatus] !== undefined && row[idxStatus] !== null ? row[idxStatus] : 'N/A').trim();
+            // Columna A (índice 0) -> ID Pedido
+            const idRaw = (row[idxId] !== undefined && row[idxId] !== null && String(row[idxId]).trim() !== '')
+              ? row[idxId]
+              : (row[0] !== undefined && row[0] !== null ? row[0] : `ORD-${index + 1000}`);
+            const id = String(idRaw).trim();
+
             const createdAtRaw = row[idxCreated];
             const customerName = String(row[idxCustomer] !== undefined && row[idxCustomer] !== null ? row[idxCustomer] : 'N/A').trim();
             
-            // Columna D (índice 3 del Excel) corresponde a Destinatario
-            const recipientRaw = (row[3] !== undefined && row[3] !== null && String(row[3]).trim() !== '')
-              ? row[3]
-              : (row[idxRecipient] !== undefined && row[idxRecipient] !== null ? row[idxRecipient] : 'N/A');
+            // Columna D (índice 3) -> Destinatario
+            const recipientRaw = (row[idxRecipient] !== undefined && row[idxRecipient] !== null && String(row[idxRecipient]).trim() !== '')
+              ? row[idxRecipient]
+              : (row[3] !== undefined && row[3] !== null ? row[3] : 'N/A');
             const recipient = String(recipientRaw).trim();
 
-            // Columna E (índice 4 del Excel) corresponde a ID Pedido
-            const idRaw = (row[4] !== undefined && row[4] !== null && String(row[4]).trim() !== '')
-              ? row[4]
-              : (row[idxId] !== undefined && row[idxId] !== null ? row[idxId] : `ORD-${index + 1000}`);
-            const id = String(idRaw).trim();
+            // Columna E (índice 4) -> Estado TMS
+            const tmsStatusRaw = (row[idxStatus] !== undefined && row[idxStatus] !== null && String(row[idxStatus]).trim() !== '')
+              ? row[idxStatus]
+              : (row[4] !== undefined && row[4] !== null ? row[4] : 'N/A');
+            const tmsStatus = String(tmsStatusRaw).trim();
             const location = String(row[idxLocation] !== undefined ? row[idxLocation] : 'N/A').trim();
             const packages = Number(row[idxPackages]) || 0;
             const weight = Number(row[idxWeight]) || 0;
@@ -345,11 +350,11 @@ export const exportToExcel = (orders: Order[], fileName: string) => {
 export const exportTemplateExcel = () => {
   // Column titles corresponding exactly to columns A to K
   const headers = [
-    'Estado TMS',
+    'ID Pedido',
     'Fecha Creación',
     'Cliente',
     'Destinatario',
-    'ID Pedido',
+    'Estado TMS',
     'Localidad',
     'Bultos',
     'Kilos',
@@ -360,11 +365,11 @@ export const exportTemplateExcel = () => {
 
   const sampleRows = [
     [
-      'En Proceso',
+      '70014022',
       '15/06/2026',
       'COMPAÑIA INDUSTRIAL S.A.',
       'ALMACEN CENTRAL',
-      '70014022',
+      'En Proceso',
       'CABA',
       12,
       180,
@@ -373,11 +378,11 @@ export const exportTemplateExcel = () => {
       ''
     ],
     [
-      'Entregado',
+      '70014023',
       '14/06/2026',
       'LABORATORIO ARGENTINO',
       'SANTIAGO GOMEZ',
-      '70014023',
+      'Entregado',
       'CORDOBA',
       5,
       45,
@@ -394,11 +399,11 @@ export const exportTemplateExcel = () => {
 
   // Set column widths so headers are perfectly visible
   worksheet['!cols'] = [
-    { wch: 18 }, // Estado TMS
+    { wch: 15 }, // ID Pedido
     { wch: 16 }, // Fecha Creación
     { wch: 28 }, // Cliente
-    { wch: 15 }, // ID Pedido
     { wch: 24 }, // Destinatario
+    { wch: 18 }, // Estado TMS
     { wch: 18 }, // Localidad
     { wch: 10 }, // Bultos
     { wch: 10 }, // Kilos

@@ -1340,10 +1340,10 @@ export default function EfficiencyDashboard({ orders }: EfficiencyDashboardProps
                         <td className="py-3 px-4 font-mono font-bold text-[#58a6ff]">
                           {order.id}
                         </td>
-                        <td className="py-3 px-3 font-medium text-[#e6edf3]">
+                        <td className="py-2.5 px-3 font-medium text-[#e6edf3] text-[10px] truncate max-w-[130px]" title={order.customerName}>
                           {order.customerName}
                         </td>
-                        <td className="py-3 px-3 text-[#e6edf3] font-medium truncate max-w-[150px]" title={order.recipient}>
+                        <td className="py-2.5 px-3 text-[#e6edf3] text-[10px] truncate max-w-[130px]" title={order.recipient}>
                           {order.recipient || '-'}
                         </td>
                         <td className="py-3 px-3 text-[#8b949e]">
