@@ -88,7 +88,7 @@ export const parseExcelFile = (file: File): Promise<ParseResult> => {
         const idxStatus = findColumnIndex(['estado tms', 'tms', 'estado', 'status tms', 'status'], 0);
         const idxCreated = findColumnIndex(['fecha creacion', 'creacion', 'fecha_creacion', 'creado', 'fecha creado', 'fecha de creacion', 'fecha'], 1);
         const idxCustomer = findColumnIndex(['cliente', 'customer', 'nombre cliente', 'nombre_cliente', 'razon social'], 2);
-        const idxRecipient = findColumnIndex(['destinatario', 'recipient', 'entregar a', 'recibe', 'nombre de entrega', 'nombre', 'destinatarios', 'razon social destinatario'], 3);
+        const idxRecipient = findColumnIndex(['destinatario', 'recipient', 'entregar a', 'recibe', 'nombre de entrega', 'destinatarios', 'razon social destinatario', 'nombre'], 3);
         const idxId = findColumnIndex(['id pedido', 'pedido', 'numero pedido', 'nro pedido', 'nro_pedido', 'numero de pedido', 'nro de pedido', 'id', 'id_pedido', 'nro_remito', 'remito'], 4);
         const idxLocation = findColumnIndex(['localidad', 'ciudad', 'provincia', 'destino', 'location', 'localidades', 'municipio', 'zona'], 5);
         const idxPackages = findColumnIndex(['bultos', 'bulto', 'cantidad bultos', 'cant bultos', 'packages', 'unidades', 'piezas', 'cant'], 6);
@@ -102,8 +102,8 @@ export const parseExcelFile = (file: File): Promise<ParseResult> => {
           idxStatus,
           idxCreated,
           idxCustomer,
-          idxId,
           idxRecipient,
+          idxId,
           idxLocation,
           idxPackages,
           idxWeight,
@@ -119,8 +119,8 @@ export const parseExcelFile = (file: File): Promise<ParseResult> => {
           { key: 'Estado TMS', index: idxStatus },
           { key: 'Fecha Creación', index: idxCreated },
           { key: 'Cliente', index: idxCustomer },
-          { key: 'ID Pedido', index: idxId },
           { key: 'Destinatario', index: idxRecipient },
+          { key: 'ID Pedido', index: idxId },
           { key: 'Localidad', index: idxLocation },
           { key: 'Bultos', index: idxPackages },
           { key: 'Kilos', index: idxWeight },
@@ -158,15 +158,21 @@ export const parseExcelFile = (file: File): Promise<ParseResult> => {
             return row.some(cell => cell !== undefined && cell !== null && String(cell).trim() !== '');
           })
           .map((row: any[], index) => {
-            const tmsStatus = String(row[idxStatus] !== undefined ? row[idxStatus] : 'N/A').trim();
+            const tmsStatus = String(row[idxStatus] !== undefined && row[idxStatus] !== null ? row[idxStatus] : 'N/A').trim();
             const createdAtRaw = row[idxCreated];
-            const customerName = String(row[idxCustomer] !== undefined ? row[idxCustomer] : 'N/A').trim();
-            const id = String(row[idxId] !== undefined ? row[idxId] : `ORD-${index + 1000}`).trim();
-            const recipient = String(
-              row[idxRecipient] !== undefined && row[idxRecipient] !== null && String(row[idxRecipient]).trim() !== ''
-                ? row[idxRecipient] 
-                : (row[3] !== undefined && row[3] !== null ? row[3] : 'N/A')
-            ).trim();
+            const customerName = String(row[idxCustomer] !== undefined && row[idxCustomer] !== null ? row[idxCustomer] : 'N/A').trim();
+            
+            // Columna D (índice 3 del Excel) corresponde a Destinatario
+            const recipientRaw = (row[3] !== undefined && row[3] !== null && String(row[3]).trim() !== '')
+              ? row[3]
+              : (row[idxRecipient] !== undefined && row[idxRecipient] !== null ? row[idxRecipient] : 'N/A');
+            const recipient = String(recipientRaw).trim();
+
+            // Columna E (índice 4 del Excel) corresponde a ID Pedido
+            const idRaw = (row[4] !== undefined && row[4] !== null && String(row[4]).trim() !== '')
+              ? row[4]
+              : (row[idxId] !== undefined && row[idxId] !== null ? row[idxId] : `ORD-${index + 1000}`);
+            const id = String(idRaw).trim();
             const location = String(row[idxLocation] !== undefined ? row[idxLocation] : 'N/A').trim();
             const packages = Number(row[idxPackages]) || 0;
             const weight = Number(row[idxWeight]) || 0;
@@ -342,8 +348,8 @@ export const exportTemplateExcel = () => {
     'Estado TMS',
     'Fecha Creación',
     'Cliente',
-    'ID Pedido',
     'Destinatario',
+    'ID Pedido',
     'Localidad',
     'Bultos',
     'Kilos',
@@ -357,8 +363,8 @@ export const exportTemplateExcel = () => {
       'En Proceso',
       '15/06/2026',
       'COMPAÑIA INDUSTRIAL S.A.',
-      '70014022',
       'ALMACEN CENTRAL',
+      '70014022',
       'CABA',
       12,
       180,
@@ -370,8 +376,8 @@ export const exportTemplateExcel = () => {
       'Entregado',
       '14/06/2026',
       'LABORATORIO ARGENTINO',
-      '70014023',
       'SANTIAGO GOMEZ',
+      '70014023',
       'CORDOBA',
       5,
       45,
