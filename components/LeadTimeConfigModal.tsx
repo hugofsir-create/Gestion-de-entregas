@@ -155,9 +155,9 @@ export default function LeadTimeConfigModal({
 
   return (
     <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="bg-[#161b22] border-[#30363d] text-[#e6edf3] max-w-6xl w-[95vw] rounded-2xl p-6 shadow-2xl max-h-[92vh] flex flex-col">
-        <DialogHeader className="pb-3 border-b border-[#30363d] shrink-0">
-          <div className="flex items-center justify-between">
+      <DialogContent className="bg-[#161b22] border-[#30363d] text-[#e6edf3] sm:max-w-5xl w-[92vw] rounded-2xl p-6 shadow-2xl max-h-[90vh] flex flex-col">
+        <DialogHeader className="pb-3 border-b border-[#30363d] shrink-0 pr-8">
+          <div className="flex flex-wrap items-center justify-between gap-2">
             <DialogTitle className="flex items-center gap-2.5 text-lg font-bold text-[#e6edf3]">
               <Clock className="w-5 h-5 text-[#a371f7]" />
               Configuración de Lead Time por Zona / Localidad (SLA)

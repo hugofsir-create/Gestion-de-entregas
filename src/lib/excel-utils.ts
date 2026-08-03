@@ -87,8 +87,8 @@ export const parseExcelFile = (file: File): Promise<ParseResult> => {
         // Resolve dynamic indices based on header labels (Col A: ID Pedido, Col B: Creacion, Col C: Cliente, Col D: Destinatario, Col E: Estado TMS)
         const idxId = findColumnIndex(['id pedido', 'pedido', 'numero pedido', 'nro pedido', 'nro_pedido', 'numero de pedido', 'nro de pedido', 'id', 'id_pedido', 'nro_remito', 'remito'], 0);
         const idxCreated = findColumnIndex(['fecha creacion', 'creacion', 'fecha_creacion', 'creado', 'fecha creado', 'fecha de creacion', 'fecha'], 1);
-        const idxCustomer = findColumnIndex(['cliente', 'customer', 'nombre cliente', 'nombre_cliente', 'razon social'], 2);
-        const idxRecipient = findColumnIndex(['destinatario', 'recipient', 'entregar a', 'recibe', 'nombre de entrega', 'destinatarios', 'razon social destinatario'], 3);
+        const idxCustomer = findColumnIndex(['cliente', 'customer', 'nombre cliente', 'nombre_cliente', 'razon social cliente'], 2);
+        const idxRecipient = findColumnIndex(['destinatario', 'destinatarios', 'recipient', 'razon social', 'razon social destinatario', 'entregar a', 'recibe', 'nombre de entrega', 'consignatario', 'entrega a'], 3);
         const idxStatus = findColumnIndex(['estado tms', 'tms', 'estado', 'status tms', 'status'], 4);
         const idxLocation = findColumnIndex(['localidad', 'ciudad', 'provincia', 'destino', 'location', 'localidades', 'municipio', 'zona'], 5);
         const idxPackages = findColumnIndex(['bultos', 'bulto', 'cantidad bultos', 'cant bultos', 'packages', 'unidades', 'piezas', 'cant'], 6);
@@ -97,13 +97,17 @@ export const parseExcelFile = (file: File): Promise<ParseResult> => {
         const idxShift = findColumnIndex(['turno', 'shift', 'franja', 'franja horaria', 'turnos'], 9);
         const idxActual = findColumnIndex(['fecha real de entrega', 'fecha real entrega', 'real de entrega', 'fecha real', 'fecha de entrega real', 'fecha_real_entrega', 'entregado el', 'actual delivery', 'fecha entrega real'], 10);
 
+        // Ensure idxRecipient never points to Column E (index 4) and idxStatus never points to Column D (index 3)
+        const safeRecipientIdx = (idxRecipient === 4 || idxRecipient < 0) ? 3 : idxRecipient;
+        const safeStatusIdx = (idxStatus === 3 || idxStatus < 0) ? 4 : idxStatus;
+
         // Identify matched columns set for exclusion logic
         const matchedIndicesSet = new Set([
           idxId,
           idxCreated,
           idxCustomer,
-          idxRecipient,
-          idxStatus,
+          safeRecipientIdx,
+          safeStatusIdx,
           idxLocation,
           idxPackages,
           idxWeight,
@@ -119,8 +123,8 @@ export const parseExcelFile = (file: File): Promise<ParseResult> => {
           { key: 'ID Pedido', index: idxId },
           { key: 'Fecha Creación', index: idxCreated },
           { key: 'Cliente', index: idxCustomer },
-          { key: 'Destinatario', index: idxRecipient },
-          { key: 'Estado TMS', index: idxStatus },
+          { key: 'Destinatario', index: safeRecipientIdx },
+          { key: 'Estado TMS', index: safeStatusIdx },
           { key: 'Localidad', index: idxLocation },
           { key: 'Bultos', index: idxPackages },
           { key: 'Kilos', index: idxWeight },
@@ -167,15 +171,15 @@ export const parseExcelFile = (file: File): Promise<ParseResult> => {
             const createdAtRaw = row[idxCreated];
             const customerName = String(row[idxCustomer] !== undefined && row[idxCustomer] !== null ? row[idxCustomer] : 'N/A').trim();
             
-            // Columna D (índice 3) -> Destinatario
-            const recipientRaw = (row[idxRecipient] !== undefined && row[idxRecipient] !== null && String(row[idxRecipient]).trim() !== '')
-              ? row[idxRecipient]
+            // Columna D (índice 3) -> Destinatario (NUNCA usar índice 4 / Columna E)
+            const recipientRaw = (safeRecipientIdx !== 4 && row[safeRecipientIdx] !== undefined && row[safeRecipientIdx] !== null && String(row[safeRecipientIdx]).trim() !== '')
+              ? row[safeRecipientIdx]
               : (row[3] !== undefined && row[3] !== null ? row[3] : 'N/A');
             const recipient = String(recipientRaw).trim();
 
             // Columna E (índice 4) -> Estado TMS
-            const tmsStatusRaw = (row[idxStatus] !== undefined && row[idxStatus] !== null && String(row[idxStatus]).trim() !== '')
-              ? row[idxStatus]
+            const tmsStatusRaw = (safeStatusIdx !== 3 && row[safeStatusIdx] !== undefined && row[safeStatusIdx] !== null && String(row[safeStatusIdx]).trim() !== '')
+              ? row[safeStatusIdx]
               : (row[4] !== undefined && row[4] !== null ? row[4] : 'N/A');
             const tmsStatus = String(tmsStatusRaw).trim();
             const location = String(row[idxLocation] !== undefined ? row[idxLocation] : 'N/A').trim();
