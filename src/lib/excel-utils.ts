@@ -60,13 +60,17 @@ export const parseExcelFile = (file: File): Promise<ParseResult> => {
         );
 
         // Helper to find a column index given a set of synonyms, falls back to a default index if none matches
-        const findColumnIndex = (synonyms: string[], defaultIdx: number): number => {
+        const findColumnIndex = (synonyms: string[], defaultIdx: number, excludeWords: string[] = []): number => {
           const cleanSyns = synonyms.map(s => s.toLowerCase().trim().normalize("NFD").replace(/[\u0300-\u036f]/g, ""));
+          const cleanExcludes = excludeWords.map(e => e.toLowerCase().trim().normalize("NFD").replace(/[\u0300-\u036f]/g, ""));
           
           // 1. Exact match or synonym list match
           for (let i = 0; i < headers.length; i++) {
             const h = headers[i];
             if (!h) continue;
+            // Check exclusion
+            if (cleanExcludes.some(ex => h === ex || h.includes(ex))) continue;
+
             if (cleanSyns.includes(h)) return i;
           }
           
@@ -74,8 +78,11 @@ export const parseExcelFile = (file: File): Promise<ParseResult> => {
           for (let i = 0; i < headers.length; i++) {
             const h = headers[i];
             if (!h) continue;
+            // Check exclusion
+            if (cleanExcludes.some(ex => h === ex || h.includes(ex))) continue;
+
             for (const syn of cleanSyns) {
-              if (h.includes(syn) || syn.includes(h)) {
+              if (syn.length >= 3 && h.includes(syn)) {
                 return i;
               }
             }
@@ -84,11 +91,33 @@ export const parseExcelFile = (file: File): Promise<ParseResult> => {
           return defaultIdx;
         };
 
-        // Resolve dynamic indices based on header labels (Col A: ID Pedido, Col B: Creacion, Col C: Cliente, Col D: Destinatario, Col E: Estado TMS)
+        // Resolve dynamic indices based on header labels
+        const addressExclusions = ['direccion', 'domicilio', 'calle', 'altura', 'piso', 'depto', 'ubicacion', 'coordenadas', 'mapa', 'frente'];
+        const subClientExclusions = ['subcliente', 'sub cliente', 'sub_cliente', 'sub-cliente', 'sub.cliente'];
+
         const idxId = findColumnIndex(['id pedido', 'pedido', 'numero pedido', 'nro pedido', 'nro_pedido', 'numero de pedido', 'nro de pedido', 'id', 'id_pedido', 'nro_remito', 'remito'], 0);
         const idxCreated = findColumnIndex(['fecha creacion', 'creacion', 'fecha_creacion', 'creado', 'fecha creado', 'fecha de creacion', 'fecha'], 1);
-        const idxCustomer = findColumnIndex(['cliente', 'customer', 'nombre cliente', 'nombre_cliente', 'razon social cliente'], 2);
-        const idxRecipient = findColumnIndex(['destinatario', 'destinatarios', 'recipient', 'razon social', 'razon social destinatario', 'entregar a', 'recibe', 'nombre de entrega', 'consignatario', 'entrega a'], 3);
+        const idxCustomer = findColumnIndex(['cliente', 'customer', 'nombre cliente', 'nombre_cliente', 'razon social cliente'], 2, [...addressExclusions, ...subClientExclusions]);
+        const idxRecipient = findColumnIndex([
+          'subcliente',
+          'sub cliente',
+          'sub_cliente',
+          'sub-cliente',
+          'sub.cliente',
+          'subcliente/destinatario',
+          'sub cliente/destinatario',
+          'destinatario',
+          'destinatarios',
+          'recipient',
+          'nombre destinatario',
+          'nombre del destinatario',
+          'razon social destinatario',
+          'consignatario',
+          'recibe',
+          'persona que recibe',
+          'quien recibe',
+          'cliente final'
+        ], 3, addressExclusions);
         const idxStatus = findColumnIndex(['estado tms', 'tms', 'estado', 'status tms', 'status'], 4);
         const idxLocation = findColumnIndex(['localidad', 'ciudad', 'provincia', 'destino', 'location', 'localidades', 'municipio', 'zona'], 5);
         const idxPackages = findColumnIndex(['bultos', 'bulto', 'cantidad bultos', 'cant bultos', 'packages', 'unidades', 'piezas', 'cant'], 6);
@@ -97,9 +126,16 @@ export const parseExcelFile = (file: File): Promise<ParseResult> => {
         const idxShift = findColumnIndex(['turno', 'shift', 'franja', 'franja horaria', 'turnos'], 9);
         const idxActual = findColumnIndex(['fecha real de entrega', 'fecha real entrega', 'real de entrega', 'fecha real', 'fecha de entrega real', 'fecha_real_entrega', 'entregado el', 'actual delivery', 'fecha entrega real'], 10);
 
-        // Ensure idxRecipient never points to Column E (index 4) and idxStatus never points to Column D (index 3)
-        const safeRecipientIdx = (idxRecipient === 4 || idxRecipient < 0) ? 3 : idxRecipient;
-        const safeStatusIdx = (idxStatus === 3 || idxStatus < 0) ? 4 : idxStatus;
+        // Ensure idxRecipient ALWAYS maps to Column D (index 3) when Column D has Sub Cliente / Destinatario, and never points to Column E (index 4)
+        let safeRecipientIdx = idxRecipient;
+        if (safeRecipientIdx === 4 || safeRecipientIdx < 0 || (headers[3] && (headers[3].includes('sub') || headers[3].includes('destinatario') || headers[3].includes('cliente')))) {
+          safeRecipientIdx = 3;
+        }
+
+        let safeStatusIdx = idxStatus;
+        if (safeStatusIdx === 3 || safeStatusIdx < 0) {
+          safeStatusIdx = 4;
+        }
 
         // Identify matched columns set for exclusion logic
         const matchedIndicesSet = new Set([
