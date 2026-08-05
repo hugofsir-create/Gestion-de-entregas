@@ -21,7 +21,10 @@ import {
   ChevronDown,
   Check,
   X,
-  MapPin
+  MapPin,
+  ArrowUpDown,
+  ArrowUp,
+  ArrowDown
 } from 'lucide-react';
 import { format, isPast, isWithinInterval, addDays, addHours, differenceInDays } from 'date-fns';
 import { es } from 'date-fns/locale';
@@ -75,6 +78,34 @@ import { cn } from "@/lib/utils";
 
 type FilterType = 'all' | 'onTime' | 'late' | 'pending' | 'expiringSoon';
 
+export function isOrderLate(order: Order): boolean {
+  const now = new Date();
+  if (order.status === 'delivered') {
+    return order.actualDeliveryDate 
+      ? order.actualDeliveryDate > order.deliveryDeadline 
+      : isPast(order.deliveryDeadline);
+  }
+  const daysLeft = differenceInDays(order.deliveryDeadline, now);
+  return isPast(order.deliveryDeadline) || daysLeft < 0;
+}
+
+export function applySLAToOrders(
+  ordersList: Order[],
+  leadTimes: Record<string, number>,
+  defaultHoursVal: number
+): Order[] {
+  return ordersList.map(order => {
+    const zone = order.location ? String(order.location).trim() : '';
+    const rawLead = (zone && zone in leadTimes) ? leadTimes[zone] : defaultHoursVal;
+    const hours = normalizeHours(rawLead);
+    const calculatedDeadline = addHours(order.createdAt, hours);
+    return {
+      ...order,
+      deliveryDeadline: calculatedDeadline
+    };
+  });
+}
+
 // Helper functions for localStorage persistence
 const loadOrders = (): Order[] => {
   try {
@@ -84,12 +115,35 @@ const loadOrders = (): Order[] => {
     const parsed = JSON.parse(saved);
     if (!Array.isArray(parsed)) return [];
     
-    return parsed.map((order: any) => ({
+    let leadTimes: Record<string, number> = {
+      'CABA': 48,
+      'GBA Zona Norte': 72,
+      'GBA Zona Sur': 72,
+      'GBA Zona Oeste': 72,
+      'Tucumán': 48,
+      'Córdoba': 96,
+      'Mendoza': 120,
+      'Santa Fe': 96
+    };
+    try {
+      const savedLeadTimes = localStorage.getItem('calico_zone_lead_times');
+      if (savedLeadTimes) leadTimes = JSON.parse(savedLeadTimes);
+    } catch {}
+
+    let defaultLeadTime = 72;
+    try {
+      const savedDefaultLeadTime = localStorage.getItem('calico_default_lead_time');
+      if (savedDefaultLeadTime) defaultLeadTime = Number(savedDefaultLeadTime) || 72;
+    } catch {}
+
+    const rawOrders: Order[] = parsed.map((order: any) => ({
       ...order,
       createdAt: order.createdAt ? new Date(order.createdAt) : new Date(),
       deliveryDeadline: order.deliveryDeadline ? new Date(order.deliveryDeadline) : new Date(),
       actualDeliveryDate: order.actualDeliveryDate ? new Date(order.actualDeliveryDate) : undefined,
     }));
+
+    return applySLAToOrders(rawOrders, leadTimes, defaultLeadTime);
   } catch (error) {
     console.error("Error loading orders from localStorage:", error);
     return [];
@@ -217,7 +271,8 @@ export default function App() {
     if (newestFile) {
       try {
         setIsImporting(true);
-        const { orders: newOrders, detectedRequired, deletedExtra } = await parseExcelFile(newestFile);
+        const { orders: parsedOrders, detectedRequired, deletedExtra } = await parseExcelFile(newestFile);
+        const newOrders = applySLAToOrders(parsedOrders, zoneLeadTimes, defaultLeadTime);
         setOrders(newOrders);
 
         const syncTimeStr = format(new Date(), "dd/MM/yyyy HH:mm:ss");
@@ -324,7 +379,8 @@ export default function App() {
           });
         }
 
-        const { orders: newOrders, detectedRequired, deletedExtra } = await parseExcelFile(newestFile.file);
+        const { orders: parsedOrders, detectedRequired, deletedExtra } = await parseExcelFile(newestFile.file);
+        const newOrders = applySLAToOrders(parsedOrders, zoneLeadTimes, defaultLeadTime);
         setOrders(newOrders);
         
         // Persistir en localStorage
@@ -465,6 +521,9 @@ export default function App() {
     };
   }, [monitoredDirectory]);
 
+  // State for sorting 'Días Transcurridos'
+  const [elapsedSortOrder, setElapsedSortOrder] = useState<'desc' | 'asc' | null>('desc');
+
   const kpis = useMemo((): KPIStats => {
     const now = new Date();
     const stats = {
@@ -476,9 +535,7 @@ export default function App() {
     };
 
     orders.forEach(order => {
-      const isLate = (order.status === 'delivered' && order.actualDeliveryDate && order.actualDeliveryDate > order.deliveryDeadline) || 
-                      (order.status === 'pending' && isPast(order.deliveryDeadline));
-      
+      const isLate = isOrderLate(order);
       const daysLeft = differenceInDays(order.deliveryDeadline, now);
       const isExpiringSoon = order.status === 'pending' && !isLate && daysLeft >= 0 && daysLeft <= 5;
 
@@ -525,8 +582,7 @@ export default function App() {
       const now = new Date();
       let matchesKPI = true;
       
-      const isLate = (order.status === 'delivered' && order.actualDeliveryDate && order.actualDeliveryDate > order.deliveryDeadline) || 
-                      (order.status === 'pending' && isPast(order.deliveryDeadline));
+      const isLate = isOrderLate(order);
       
       const daysLeft = differenceInDays(order.deliveryDeadline, now);
       const isExpiringSoon = order.status === 'pending' && !isLate && daysLeft >= 0 && daysLeft <= 5;
@@ -558,13 +614,31 @@ export default function App() {
     });
   }, [orders, searchTerm, activeFilter, selectedCustomer, selectedTmsStatuses]);
 
+  // Sorted orders according to 'Días Transcurridos' controller
+  const sortedAndFilteredOrders = useMemo(() => {
+    if (!elapsedSortOrder) return filteredOrders;
+
+    const now = new Date();
+    return [...filteredOrders].sort((a, b) => {
+      const daysA = Math.max(0, differenceInDays(now, a.createdAt));
+      const daysB = Math.max(0, differenceInDays(now, b.createdAt));
+
+      if (elapsedSortOrder === 'desc') {
+        return daysB - daysA; // Mayor a menor
+      } else {
+        return daysA - daysB; // Menor a mayor
+      }
+    });
+  }, [filteredOrders, elapsedSortOrder]);
+
   const handleFileUpload = async (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
     try {
       setIsImporting(true);
-      const { orders: newOrders, detectedRequired, deletedExtra } = await parseExcelFile(file);
+      const { orders: parsedOrders, detectedRequired, deletedExtra } = await parseExcelFile(file);
+      const newOrders = applySLAToOrders(parsedOrders, zoneLeadTimes, defaultLeadTime);
       setOrders(newOrders);
       
       // Persist orders in localStorage
@@ -605,8 +679,7 @@ export default function App() {
   };
 
   const getStatusDisplay = (order: Order) => {
-    const isLate = (order.status === 'delivered' && order.actualDeliveryDate && order.actualDeliveryDate > order.deliveryDeadline) || 
-                   (order.status === 'pending' && isPast(order.deliveryDeadline));
+    const isLate = isOrderLate(order);
 
     if (order.status === 'delivered') {
       return (
@@ -1291,7 +1364,36 @@ export default function App() {
                         <TableHead className="text-[#8b949e] uppercase text-[10px] h-9 px-2 whitespace-nowrap w-[130px]">Destinatario</TableHead>
                         <TableHead className="text-[#8b949e] uppercase text-[10px] h-9 px-2 whitespace-nowrap w-[110px]">Localidad</TableHead>
                         <TableHead className="text-[#8b949e] uppercase text-[10px] h-9 px-2 whitespace-nowrap w-[80px]">Creación</TableHead>
-                        <TableHead className="text-[#8b949e] uppercase text-[10px] h-9 px-2 text-center whitespace-nowrap w-[105px]" title="Días transcurridos desde la fecha de creación hasta hoy">Días Transcurridos</TableHead>
+                        <TableHead 
+                          className="text-[#8b949e] uppercase text-[10px] h-9 px-2 text-center whitespace-nowrap w-[135px] cursor-pointer select-none hover:text-[#e6edf3] hover:bg-[#21262d]/50 transition-colors rounded-md"
+                          title="Clic para ordenar Días Transcurridos (Mayor a Menor / Menor a Mayor)"
+                          onClick={() => {
+                            if (elapsedSortOrder === null) {
+                              setElapsedSortOrder('desc');
+                            } else if (elapsedSortOrder === 'desc') {
+                              setElapsedSortOrder('asc');
+                            } else {
+                              setElapsedSortOrder(null);
+                            }
+                          }}
+                        >
+                          <div className="flex items-center justify-center gap-1 font-semibold">
+                            <span>Días Transcurridos</span>
+                            {elapsedSortOrder === 'desc' && (
+                              <Badge variant="outline" className="bg-[#3fb950]/10 border-[#3fb950]/30 text-[#3fb950] text-[8px] px-1 py-0 gap-0.5 font-mono shrink-0">
+                                Mayor <ArrowDown className="w-2.5 h-2.5 text-[#3fb950]" />
+                              </Badge>
+                            )}
+                            {elapsedSortOrder === 'asc' && (
+                              <Badge variant="outline" className="bg-[#58a6ff]/10 border-[#58a6ff]/30 text-[#58a6ff] text-[8px] px-1 py-0 gap-0.5 font-mono shrink-0">
+                                Menor <ArrowUp className="w-2.5 h-2.5 text-[#58a6ff]" />
+                              </Badge>
+                            )}
+                            {elapsedSortOrder === null && (
+                              <ArrowUpDown className="w-3 h-3 text-[#8b949e]/60 group-hover:text-[#e6edf3]" />
+                            )}
+                          </div>
+                        </TableHead>
                         <TableHead className="text-[#8b949e] uppercase text-[10px] h-9 px-2 whitespace-nowrap w-[95px]">Vencimiento</TableHead>
                         <TableHead className="text-[#8b949e] uppercase text-[10px] h-9 px-2 whitespace-nowrap w-[65px]">Turno</TableHead>
                         <TableHead className="text-[#8b949e] uppercase text-[10px] h-9 px-2 whitespace-nowrap w-[75px] text-right">Bultos/Kg</TableHead>
@@ -1299,7 +1401,7 @@ export default function App() {
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {filteredOrders.map((order) => {
+                      {sortedAndFilteredOrders.map((order) => {
                         const elapsedDays = Math.max(0, differenceInDays(new Date(), order.createdAt));
                         return (
                           <TableRow 
@@ -1477,8 +1579,7 @@ function getPriorityVisual(priority: string) {
 }
 
 function getStatusTag(order: Order) {
-  const isLate = (order.status === 'delivered' && order.actualDeliveryDate && order.actualDeliveryDate > order.deliveryDeadline) || 
-                 (order.status === 'pending' && isPast(order.deliveryDeadline));
+  const isLate = isOrderLate(order);
 
   if (order.status === 'delivered') {
     return !isLate 
@@ -1486,10 +1587,11 @@ function getStatusTag(order: Order) {
       : <span className="px-2 py-1 rounded bg-[#f8514915] text-[#f85149] text-[10px] font-bold uppercase">Fuera de Tiempo</span>;
   }
 
-  const daysLeft = differenceInDays(order.deliveryDeadline, new Date());
   if (isLate) {
     return <span className="px-2 py-1 rounded bg-[#f8514915] text-[#f85149] text-[10px] font-bold uppercase">Fuera de Tiempo</span>;
   }
+
+  const daysLeft = differenceInDays(order.deliveryDeadline, new Date());
   if (daysLeft >= 0 && daysLeft <= 5) {
     return <span className="px-2 py-1 rounded bg-[#d2992215] text-[#d29922] text-[10px] font-bold uppercase whitespace-nowrap">Próximo a Vencer</span>;
   }

@@ -1,6 +1,7 @@
 import * as React from 'react';
 import { useMemo, useState } from 'react';
 import { Order } from '../src/types';
+import { isOrderLate } from '../src/App';
 import { 
   ResponsiveContainer,
   PieChart,
@@ -83,8 +84,7 @@ export default function EfficiencyDashboard({ orders }: EfficiencyDashboardProps
     let highPriorityOnTime = 0;
 
     orders.forEach(order => {
-      const isLate = (order.status === 'delivered' && order.actualDeliveryDate && order.actualDeliveryDate > order.deliveryDeadline) || 
-                      (order.status === 'pending' && isPast(order.deliveryDeadline));
+      const isLate = isOrderLate(order);
       
       const daysLeft = differenceInDays(order.deliveryDeadline, now);
       const isExpiringSoon = order.status === 'pending' && !isLate && daysLeft >= 0 && daysLeft <= 5;
@@ -171,8 +171,7 @@ export default function EfficiencyDashboard({ orders }: EfficiencyDashboardProps
     if (activeFilter === 'all') return orders;
     const now = new Date();
     return orders.filter(order => {
-      const isLate = (order.status === 'delivered' && order.actualDeliveryDate && order.actualDeliveryDate > order.deliveryDeadline) || 
-                      (order.status === 'pending' && isPast(order.deliveryDeadline));
+      const isLate = isOrderLate(order);
       
       const daysLeft = differenceInDays(order.deliveryDeadline, now);
       const isExpiringSoon = order.status === 'pending' && !isLate && daysLeft >= 0 && daysLeft <= 5;
@@ -219,8 +218,7 @@ export default function EfficiencyDashboard({ orders }: EfficiencyDashboardProps
         };
       }
 
-      const isLate = (order.status === 'delivered' && order.actualDeliveryDate && order.actualDeliveryDate > order.deliveryDeadline) || 
-                      (order.status === 'pending' && isPast(order.deliveryDeadline));
+      const isLate = isOrderLate(order);
       
       const daysLeft = differenceInDays(order.deliveryDeadline, now);
       const isExpiringSoon = order.status === 'pending' && !isLate && daysLeft >= 0 && daysLeft <= 5;

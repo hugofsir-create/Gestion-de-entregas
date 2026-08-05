@@ -277,18 +277,18 @@ export const parseExcelFile = (file: File): Promise<ParseResult> => {
 
             const shift = parseShiftDate(shiftRaw);
             
-            const parseDate = (val: any) => {
-              if (!val) return new Date();
+            const parseDateOrNull = (val: any): Date | null => {
+              if (!val) return null;
               if (val instanceof Date) {
-                return isValid(val) ? val : new Date();
+                return isValid(val) ? val : null;
               }
               if (typeof val === 'number') {
                 const d = new Date((val - 25569) * 86400 * 1000);
-                return isValid(d) ? d : new Date();
+                return isValid(d) ? d : null;
               }
 
               const strVal = String(val).trim();
-              if (!strVal) return new Date();
+              if (!strVal || strVal.toLowerCase() === 'n/a') return null;
 
               // Handle stringified Excel serial numbers (e.g. "45423" or similar)
               const numVal = Number(strVal);
@@ -322,12 +322,13 @@ export const parseExcelFile = (file: File): Promise<ParseResult> => {
               const nativeD = new Date(strVal);
               if (isValid(nativeD)) return nativeD;
 
-              return new Date();
+              return null;
             };
 
-            const createdAt = parseDate(createdAtRaw);
-            const deliveryDeadline = parseDate(deadlineRaw);
-            const actualDeliveryDate = actualRaw ? parseDate(actualRaw) : undefined;
+            const createdAt = parseDateOrNull(createdAtRaw) || new Date();
+            const parsedDeadline = parseDateOrNull(deadlineRaw);
+            const deliveryDeadline = parsedDeadline || addHours(createdAt, 72);
+            const actualDeliveryDate = actualRaw ? (parseDateOrNull(actualRaw) || undefined) : undefined;
             
             // Heuristic for status based on tms data or generic
             let status: OrderStatus = 'pending';
